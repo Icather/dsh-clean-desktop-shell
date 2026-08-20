@@ -5,9 +5,11 @@ node_modules/
 dist/
 out/
 release/
-build/
 lib/
 *.tsbuildinfo
+
+# Generated icon intermediates (keep the committed sources: build/favicon-source.svg)
+build/icon-*.png
 
 # Logs
 *.log
@@ -29,3 +31,4 @@ Thumbs.db
 # Local config
 .env
 .env.local
+.npmrc
