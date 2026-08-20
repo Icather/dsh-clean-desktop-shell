@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>后端未连接</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #10131A;
+      color: #9aa3b2;
+      font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .wrap {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .whale {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      background: #1b2330;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #cdd3de;
+      filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+    }
+    h2 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      color: #e8eaf0;
+    }
+    p {
+      margin: 0;
+      font-size: 13px;
+    }
+    button {
+      padding: 9px 22px;
+      font-size: 13px;
+      color: #e8eaf0;
+      background: #232d3d;
+      border: 1px solid #33405a;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover { background: #2b3750; }
+    button:active { background: #202a3c; }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .folder-btn {
+      margin-top: 2px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #6b7686;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      text-decoration: underline;
+    }
+    .folder-btn:hover { color: #9aa3b2; background: none; }
+    .hint {
+      font-size: 12px;
+      opacity: 0.55;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="whale">DSH</div>
+    <h2>后端未连接</h2>
+    <p>请启动 dsh 后端，或使用下方按钮</p>
+    <button id="retry">重新加载</button>
+    <div class="actions">
+      <button id="start">启动后端</button>
+      <button id="detect">自动探测后端</button>
+    </div>
+    <button id="folder" class="folder-btn">设置后端安装文件夹</button>
+    <p class="hint">后端启动后本窗口会自动刷新</p>
+  </div>
+  <script>
+    // Injected by preload (sandbox-safe). Falls back to a plain reload.
+    var api = window.shellAPI || {};
+    document.getElementById('retry').addEventListener('click', function () {
+      if (api.reload) api.reload();
+      else location.reload();
+    });
+    var startBtn = document.getElementById('start');
+    if (api.startBackend) startBtn.addEventListener('click', api.startBackend);
+    else startBtn.style.display = 'none';
+    var detectBtn = document.getElementById('detect');
+    if (api.detectBackend) detectBtn.addEventListener('click', api.detectBackend);
+    else detectBtn.style.display = 'none';
+    var folderBtn = document.getElementById('folder');
+    if (api.chooseBackendFolder) folderBtn.addEventListener('click', api.chooseBackendFolder);
+    else folderBtn.style.display = 'none';
+  </script>
+</body>
+</html>

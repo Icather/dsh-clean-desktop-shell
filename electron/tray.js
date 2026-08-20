@@ -8,7 +8,17 @@ import { Tray, Menu, dialog, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig } from './config.js'
-import { getStatus, start, stop, restart, detect, findDshInFolder, detectInstallFolder } from './service.js'
+import {
+  getStatus,
+  start,
+  stop,
+  restart,
+  detect,
+  findDshInFolder,
+  detectInstallFolder,
+  onStatusChange,
+} from './service.js'
+import { showProgress, setProgress, closeProgress } from './progress.js'
 import { checkForUpdate, openRepo, openUrl } from './update.js'
 
 const trayIconPath = join(
@@ -20,14 +30,18 @@ const trayIconPath = join(
 let trayInstance = null
 let handlers = null
 
-export function createTray({ onShow, onToggleAutoStart, onQuit }) {
+export function createTray({ onShow, onToggleAutoStart, onReload, onQuit }) {
   const icon = nativeImage.createFromPath(trayIconPath)
 
-  handlers = { onShow, onToggleAutoStart, onQuit }
+  handlers = { onShow, onToggleAutoStart, onReload, onQuit }
 
   trayInstance = new Tray(icon)
   trayInstance.setToolTip('DSH Clean Desktop Shell')
   trayInstance.on('click', onShow)
+
+  // Keep the menu in sync whenever the backend state machine changes
+  // (starting → running / error / stopped happens asynchronously).
+  onStatusChange(() => refreshTrayMenu())
 
   refreshTrayMenu()
   return trayInstance
@@ -36,34 +50,34 @@ export function createTray({ onShow, onToggleAutoStart, onQuit }) {
 /** Rebuild the context menu (call after backend state changes). */
 export function refreshTrayMenu() {
   if (!trayInstance || !handlers) return
-  const { onShow, onToggleAutoStart, onQuit } = handlers
-  const config = loadConfig()
+  const { onShow, onToggleAutoStart, onReload, onQuit } = handlers
   const st = getStatus()
   const label = statusLabel(st)
 
   const menu = Menu.buildFromTemplate([
     { label: '显示 / 打开窗口', click: onShow },
+    {
+      label: '刷新窗口',
+      click: onReload,
+    },
     { type: 'separator' },
     { label: `后端：${label}`, enabled: false },
     {
       label: '启动后端',
       enabled: st.status !== 'running' && st.status !== 'starting',
-      click: async () => {
-        try {
-          await start({ backendPath: loadConfig().backendPath })
-        } catch (err) {
-          dialog.showErrorBox('后端启动失败', err.message)
-        }
-        refreshTrayMenu()
-      },
+      click: () => startBackendWithProgress(),
     },
     {
       label: '重启后端',
       enabled: st.status === 'running' || st.status === 'starting',
       click: async () => {
+        showProgress({ title: '重启后端', message: '正在重启 dsh 后端…' })
         try {
           await restart({ backendPath: loadConfig().backendPath })
+          setProgress({ title: '重启后端', message: '后端已重启', state: 'ok' })
+          setTimeout(closeProgress, 1200)
         } catch (err) {
+          closeProgress()
           dialog.showErrorBox('后端重启失败', err.message)
         }
         refreshTrayMenu()
@@ -73,7 +87,15 @@ export function refreshTrayMenu() {
       label: '关闭后端',
       enabled: st.status === 'running' || st.status === 'starting',
       click: async () => {
-        await stop()
+        showProgress({ title: '关闭后端', message: '正在关闭 dsh 后端…' })
+        try {
+          await stop()
+          setProgress({ title: '关闭后端', message: '后端已关闭', state: 'ok' })
+          setTimeout(closeProgress, 1200)
+        } catch (err) {
+          closeProgress()
+          dialog.showErrorBox('后端关闭失败', err.message)
+        }
         refreshTrayMenu()
       },
     },
@@ -87,39 +109,7 @@ export function refreshTrayMenu() {
     },
     {
       label: '设置后端安装文件夹…',
-      click: async () => {
-        // Default location: auto-detect the dsh install folder first.
-        const detected = await detectInstallFolder()
-        const defaultFolder = detected || config.backendPath || undefined
-        const result = await dialog.showOpenDialog({
-          title: '选择dsh后端安装文件夹，默认安装用自动探测',
-          buttonLabel: '选择此文件夹',
-          message: '默认安装用自动探测。可手动指定 dsh 后端安装文件夹（包含 dsh 可执行文件）。',
-          properties: ['openDirectory'],
-          defaultPath: defaultFolder,
-        })
-        if (!result.canceled && result.filePaths[0]) {
-          const folder = result.filePaths[0]
-          saveConfig({ ...loadConfig(), backendPath: folder })
-          const found = await findDshInFolder(folder)
-          if (found) {
-            dialog.showMessageBox({
-              type: 'info',
-              title: '后端安装文件夹已设置',
-              message: `已找到 dsh：\n${found}`,
-            })
-          } else {
-            dialog.showMessageBox({
-              type: 'warning',
-              title: '未在此文件夹找到 dsh',
-              message:
-                '此文件夹内未找到 dsh 可执行文件。已保存该路径，但启动后端时可能失败——\n' +
-                '请确认选择的是包含 dsh（dsh.cmd / bin/dsh.cmd / node_modules/.bin/dsh.cmd）的文件夹。',
-            })
-          }
-        }
-        refreshTrayMenu()
-      },
+      click: () => chooseBackendFolder(),
     },
     { type: 'separator' },
     {
@@ -180,4 +170,63 @@ function statusLabel(st) {
     default:
       return '未运行'
   }
+}
+
+/**
+ * Start the backend with a progress window. Shared by the tray menu and
+ * the offline screen buttons. Returns true on success.
+ */
+export async function startBackendWithProgress() {
+  showProgress({ title: '启动后端', message: '正在启动 dsh 后端…' })
+  try {
+    await start({ backendPath: loadConfig().backendPath })
+    setProgress({ title: '启动后端', message: '后端已启动', state: 'ok' })
+    setTimeout(closeProgress, 1200)
+    return true
+  } catch (err) {
+    closeProgress()
+    dialog.showErrorBox('后端启动失败', err.message)
+    return false
+  } finally {
+    refreshTrayMenu()
+  }
+}
+
+/**
+ * Pick the dsh install folder via a native dialog (auto-detect default).
+ * Shared by the tray menu and the offline screen. Saves the choice to
+ * config and validates that a dsh executable exists inside.
+ */
+export async function chooseBackendFolder() {
+  const config = loadConfig()
+  const detected = await detectInstallFolder()
+  const defaultFolder = detected || config.backendPath || undefined
+  const result = await dialog.showOpenDialog({
+    title: '选择dsh后端安装文件夹，默认安装用自动探测',
+    buttonLabel: '选择此文件夹',
+    message: '默认安装用自动探测。可手动指定 dsh 后端安装文件夹（包含 dsh 可执行文件）。',
+    properties: ['openDirectory'],
+    defaultPath: defaultFolder,
+  })
+  if (!result.canceled && result.filePaths[0]) {
+    const folder = result.filePaths[0]
+    saveConfig({ ...loadConfig(), backendPath: folder })
+    const found = await findDshInFolder(folder)
+    if (found) {
+      dialog.showMessageBox({
+        type: 'info',
+        title: '后端安装文件夹已设置',
+        message: `已找到 dsh：\n${found}`,
+      })
+    } else {
+      dialog.showMessageBox({
+        type: 'warning',
+        title: '未在此文件夹找到 dsh',
+        message:
+          '此文件夹内未找到 dsh 可执行文件。已保存该路径，但启动后端时可能失败——\n' +
+          '请确认选择的是包含 dsh（dsh.cmd / bin/dsh.cmd / node_modules/.bin/dsh.cmd）的文件夹。',
+      })
+    }
+  }
+  refreshTrayMenu()
 }

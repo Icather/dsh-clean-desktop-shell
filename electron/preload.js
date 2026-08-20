@@ -1,5 +1,6 @@
 /**
- * Preload: makes the frameless window draggable.
+ * Preload: makes the frameless window draggable + exposes the minimal
+ * shell API to the loaded page (sandbox-safe contextBridge).
  *
  * A frameless window has no title bar, so dragging is provided by a
  * `-webkit-app-region: drag` strip along the top of the loaded page.
@@ -12,6 +13,18 @@
  * DSH top bar area. Overlap is acceptable: the strip is click-through for
  * everything except dragging (app-region drag areas swallow mouse events).
  */
+const { contextBridge, ipcRenderer } = require('electron')
+
+contextBridge.exposeInMainWorld('shellAPI', {
+  // Ask the main process to (re)load the real target URL. Used by the
+  // offline screen's retry button.
+  reload: () => ipcRenderer.send('shell:reload'),
+  // Offline-screen quick actions (mirror the tray backend controls).
+  startBackend: () => ipcRenderer.send('shell:start-backend'),
+  detectBackend: () => ipcRenderer.send('shell:detect-backend'),
+  chooseBackendFolder: () => ipcRenderer.send('shell:choose-backend-folder'),
+})
+
 window.addEventListener('DOMContentLoaded', () => {
   const platform = process.platform
   const isWin = platform === 'win32'

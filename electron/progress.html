@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>后端操作</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #10131A;
+      color: #9aa3b2;
+      font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+      overflow: hidden;
+    }
+    .wrap {
+      height: 100%;
+      box-sizing: border-box;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e8eaf0;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      min-height: 18px;
+    }
+    .dot {
+      width: 14px;
+      height: 14px;
+      flex: none;
+      border-radius: 50%;
+      border: 2px solid #2c3644;
+      border-top-color: #7f858f;
+      animation: spin 0.8s linear infinite;
+    }
+    .dot.ok {
+      border-color: #3d8b6a;
+      animation: none;
+    }
+    .dot.error {
+      border-color: #c0564d;
+      animation: none;
+    }
+    .msg { line-height: 1.4; }
+    .msg.error { color: #e09090; }
+    .msg.ok { color: #8fbfa4; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title" id="title">后端操作</div>
+    <div class="status">
+      <div class="dot" id="dot"></div>
+      <div class="msg" id="msg">请稍候…</div>
+    </div>
+  </div>
+  <script>
+    window.progressAPI.onSet((data) => {
+      if (data.title) document.getElementById('title').textContent = data.title
+      const msg = document.getElementById('msg')
+      msg.textContent = data.message || ''
+      msg.className = 'msg' + (data.state === 'error' ? ' error' : data.state === 'ok' ? ' ok' : '')
+      document.getElementById('dot').className = 'dot' + (data.state === 'error' ? ' error' : data.state === 'ok' ? ' ok' : '')
+    })
+  </script>
+</body>
+</html>

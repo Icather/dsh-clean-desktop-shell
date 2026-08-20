@@ -9,7 +9,7 @@
  * The main window is a pure shell — all backend controls live in the tray.
  */
 import { app, BrowserWindow } from 'electron'
-import { createMainWindow } from './window.js'
+import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
 import { detect, start } from './service.js'
@@ -88,6 +88,11 @@ if (!gotLock) {
         const config = loadConfig()
         saveConfig({ ...config, autoLaunch: enabled })
         app.setLoginItemSettings({ openAtLogin: enabled })
+      },
+      onReload: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          reloadWindow(mainWindow, loadConfig().targetUrl || 'http://127.0.0.1:3080')
+        }
       },
       onQuit: () => {
         app.isQuitting = true
