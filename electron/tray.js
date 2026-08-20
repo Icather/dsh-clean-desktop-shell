@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig } from './config.js'
 import { getStatus, start, stop, restart, detect, findDshInFolder, detectInstallFolder } from './service.js'
+import { checkForUpdate, openRepo, openUrl } from './update.js'
 
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -119,6 +120,41 @@ export function refreshTrayMenu() {
         }
         refreshTrayMenu()
       },
+    },
+    { type: 'separator' },
+    {
+      label: '检查更新…',
+      click: async () => {
+        const r = await checkForUpdate()
+        if (r.hasUpdate) {
+          const choice = dialog.showMessageBoxSync({
+            type: 'info',
+            title: '发现新版本',
+            message: `当前版本 ${r.current}，最新版本 ${r.latest}。`,
+            detail: '是否前往 GitHub Releases 页面下载？',
+            buttons: ['前往下载', '取消'],
+            defaultId: 0,
+            cancelId: 1,
+          })
+          if (choice === 0) openUrl(r.url)
+        } else if (r.latest) {
+          dialog.showMessageBoxSync({
+            type: 'info',
+            title: '已是最新版本',
+            message: `当前版本 ${r.current} 已是最新（${r.latest}）。`,
+          })
+        } else {
+          dialog.showMessageBoxSync({
+            type: 'warning',
+            title: '检查更新失败',
+            message: '无法连接 GitHub 检查更新，请检查网络后重试。',
+          })
+        }
+      },
+    },
+    {
+      label: '仓库主页',
+      click: () => openRepo(),
     },
     { type: 'separator' },
     {
