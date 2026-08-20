@@ -29,49 +29,22 @@ Key differences from other desktop clients in the ecosystem:
 | **Visual changes** | Custom title bar / frosted glass etc. | **None** — pure window shell |
 | **Upstream** | Pinned version | **Tracks rc.7** |
 
-## Architecture
-
-```
-        ┌─────────────────── Core (dsh web / headless service) ───────────────────┐
-        │  Sessions · Agent · Plugins · Memory live here, decoupled from UI       │
-        └─────────────────────────────────────────────────────────────────────────┘
-                              ▲
-              ┌───────────────┴───────────────┐
-              │   dsh-clean-desktop-shell      │
-              │   Electron shell (client)      │
-              │   tray · single-instance ·     │
-              │   auto-launch                  │
-              └────────────────────────────────┘
-```
-
-- **Default**: loads the local `127.0.0.1:3080` (your configured web profile, zero migration).
-- **Remote-capable**: configure any remote DSH address; the shell is just a window. Phones / Linux / other devices can reach the core via browser or PWA — the shell is never bound to a local service.
-
-### Platform matrix
-
-| Platform | Shell | Status |
-|:--|:--|:--|
-| Windows | ✅ Electron (frameless + native window buttons) | Released (NSIS installer) |
-| macOS | ✅ Electron (hiddenInset) | Released (CI builds Intel + Apple Silicon DMG) |
-| Linux | — (browser / PWA to the core) | Not planned |
-| Termux / phone / tablet | — (headless / PWA to the core) | Covered by remote core access |
-
 ## Install
 
-**Option 1: download the installer from Releases (recommended, the only full install)**
+**Option 1: download the installer from Releases (recommended for end users — the only full desktop-app install)**
 
 - Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
 - macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
 
 The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray, auto-launch). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
 
-**Option 2: register as a DSH plugin (developers/power users only — not an install alternative)**
+**Option 2: register as a DSH plugin (developers/power users only) — ⚠️ this command does NOT install any desktop app**
 
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
 
-> ⚠️ Registering the plugin does **not** install the desktop app or create a shortcut — it only mounts the shell into your DSH profile (reuses your web profile config, future settings integration). **You still need the Option 1 installer for the actual desktop app** (or run the source with `npm run dev`). End users: use Option 1.
+> **Important**: Option 2 only "registers" the shell into your DSH profile. **No desktop app appears on your machine** — no installer, no desktop icon, no tray. It is meant for developers who want the shell mounted in the DSH ecosystem (reuses your web profile config, future settings integration). **For a double-clickable desktop app, use Option 1** (or run the source with `npm run dev`).
 
 > The shell needs a reachable `dsh web` service (local or configured remote address). See Usage.
 
@@ -109,10 +82,37 @@ Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.e
 
 > A code signing certificate (EV or Azure Trusted Signing) would remove this warning entirely, but it costs money and is rarely worth it for individual open-source maintainers. We may adopt signing when the project allows.
 
+## Architecture
+
+```
+        ┌─────────────────── Core (dsh web / headless service) ───────────────────┐
+        │  Sessions · Agent · Plugins · Memory live here, decoupled from UI       │
+        └─────────────────────────────────────────────────────────────────────────┘
+                              ▲
+              ┌───────────────┴───────────────┐
+              │   dsh-clean-desktop-shell      │
+              │   Electron shell (client)      │
+              │   tray · single-instance ·     │
+              │   auto-launch                  │
+              └────────────────────────────────┘
+```
+
+- **Default**: loads the local `127.0.0.1:3080` (your configured web profile, zero migration).
+- **Remote-capable**: configure any remote DSH address; the shell is just a window. Phones / Linux / other devices can reach the core via browser or PWA — the shell is never bound to a local service.
+
+### Platform matrix
+
+| Platform | Shell | Status |
+|:--|:--|:--|
+| Windows | ✅ Electron (frameless + native window buttons) | Released (NSIS installer) |
+| macOS | ✅ Electron (hiddenInset) | Released (CI builds Intel + Apple Silicon DMG) |
+| Linux | — (browser / PWA to the core) | Not planned |
+| Termux / phone / tablet | — (headless / PWA to the core) | Covered by remote core access |
+
 ## Usage
 
 1. Start `dsh web` (or configure a remote service address).
-2. Launch the shell: it auto-detects local 3080; if not running it starts the service per configuration.
+2. Launch the shell: it auto-detects local 3080 — loads the page if the backend is up, otherwise shows the "backend offline" screen where you can start it in one click.
 3. Drag the window by its top area (right side reserved for native buttons); close minimizes to tray by default.
 
 **All backend controls live in the tray** — the main window stays a pure shell:
@@ -142,6 +142,17 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.2
+- Windows auto-update: tray "check for updates" now downloads in the
+  background with progress and installs on restart (electron-updater);
+  macOS keeps the manual download flow.
+- Launch-time backend auto-start removed (fully manual now, no longer
+  fights an explicit "stop backend").
+- Contributor files added (CONTRIBUTING / CoC / SECURITY / issue & PR
+  templates).
+- README: Windows SmartScreen install guide; clarified that "plugin
+  registration ≠ installing the desktop app".
 
 ### 0.1.1
 - Backend lifecycle: fixed `spawn EINVAL` / stuck "starting" on Windows;
