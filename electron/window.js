@@ -15,16 +15,26 @@
  *    window flips back to the offline screen instead of showing a stale page
  *    that suggests the app is still alive.
  */
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { probe, onStatusChange, detect } from './service.js'
 import { startBackendWithProgress, chooseBackendFolder } from './tray.js'
+import { APP_USER_MODEL_ID } from './aumid.js'
 
 export const WINDOWS_TITLEBAR_HEIGHT = 32
 
+const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const PRELOAD_PATH = fileURLToPath(new URL('./preload.js', import.meta.url))
+// Windows taskbar follows the window icon only when it is an .ico; a png
+// covers the title bar / alt-tab but not the taskbar button. In plugin
+// mode there is no exe icon resource, so prefer the bundled .ico.
+const TASKBAR_ICO = join(PKG_ROOT, 'build', 'icon.ico')
 // Black-whale app icon (matches the DSH web favicon).
-const ICON_PATH = fileURLToPath(new URL('../build/icon.png', import.meta.url))
+const ICON_PATH = existsSync(TASKBAR_ICO)
+  ? TASKBAR_ICO
+  : fileURLToPath(new URL('../build/icon.png', import.meta.url))
 // Local fallback page shown while the backend is down.
 const ERROR_PAGE = fileURLToPath(new URL('./error.html', import.meta.url))
 
@@ -189,6 +199,15 @@ export function createMainWindow({ target }) {
   // Linux / other: keep the native frame.
 
   const win = new BrowserWindow(options)
+  // Windows taskbar button: bare runtime electron.exe has no custom icon,
+  // so pin the button to our .ico via setAppDetails (appId must match the
+  // app-level AppUserModelId set in main.js, else the options are ignored).
+  if (process.platform === 'win32' && existsSync(TASKBAR_ICO)) {
+    win.setAppDetails({
+      appId: APP_USER_MODEL_ID,
+      appIconPath: TASKBAR_ICO,
+    })
+  }
   windowTargets.set(win.id, target)
   win.loadURL(target).catch(() => startReconnect(win, target))
 

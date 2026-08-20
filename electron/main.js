@@ -8,20 +8,39 @@
  *
  * The main window is a pure shell — all backend controls live in the tray.
  */
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, nativeImage } from 'electron'
+import { fileURLToPath } from 'node:url'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
 import { detect } from './service.js'
 import { setupAutoUpdater } from './update.js'
-import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut } from './shortcut.js'
+import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut, ensureStartMenuShortcut } from './shortcut.js'
+import { APP_USER_MODEL_ID } from './aumid.js'
 
 const isMac = process.platform === 'darwin'
 
 // Windows: pin the AppUserModelId so the taskbar shows our whale icon
-// instead of the generic Electron icon.
+// instead of the generic Electron icon. Plugin mode uses a distinct ID
+// (see aumid.js) so Windows re-reads the icon instead of serving a
+// stale per-AUMID cached one.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.icather.dsh-clean-desktop-shell')
+  app.setAppUserModelId(APP_USER_MODEL_ID)
+}
+
+// macOS: a bare runtime has no .app bundle (no icon resource), so set the
+// Dock icon at runtime. Unlike Windows there is no per-AUMID taskbar cache
+// here — app.dock.setIcon applies directly. Packaged builds already carry
+// the icon in their bundle, so skip those.
+if (isMac && !app.isPackaged) {
+  try {
+    const dockIcon = nativeImage.createFromPath(
+      fileURLToPath(new URL('../build/icon.png', import.meta.url)),
+    )
+    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
+  } catch {
+    // non-fatal: keep the default icon
+  }
 }
 
 // Uniform userData across both distribution branches (installer vs
@@ -129,6 +148,14 @@ if (!gotLock) {
 
     // Windows: wire the auto-updater (downloads new installers silently).
     setupAutoUpdater()
+
+    // Windows: ensure the AUMID-carrying Start-menu shortcut exists so the
+    // taskbar button shows our icon (see shortcut.js). Best-effort.
+    try {
+      ensureStartMenuShortcut()
+    } catch {
+      // non-fatal
+    }
 
     // First run: offer a desktop shortcut (never nags twice).
     ensureShortcut().catch(() => {})
