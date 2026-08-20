@@ -91,14 +91,22 @@
       "category": "public.app-category.developer-tools"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Icather",
+      "repo": "dsh-clean-desktop-shell"
     }
   },
   "license": "MIT",
   "allowScripts": {
     "electron@33.4.11": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

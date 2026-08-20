@@ -19,7 +19,7 @@ import {
   onStatusChange,
 } from './service.js'
 import { showProgress, setProgress, closeProgress } from './progress.js'
-import { checkForUpdate, openRepo, openUrl } from './update.js'
+import { checkForUpdate, checkForUpdatesAuto, isAutoUpdateSupported, openRepo, openUrl } from './update.js'
 
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -115,6 +115,12 @@ export function refreshTrayMenu() {
     {
       label: '检查更新…',
       click: async () => {
+        // Windows (packaged): auto-download + install on restart.
+        // macOS / dev mode: manual page link (macOS needs a signature).
+        if (isAutoUpdateSupported()) {
+          await checkForUpdatesAuto()
+          return
+        }
         const r = await checkForUpdate()
         if (r.hasUpdate) {
           const choice = dialog.showMessageBoxSync({

@@ -4,7 +4,6 @@
  * Fields:
  *  - targetUrl:       default 'http://127.0.0.1:3080' — set to any remote
  *                     DSH address to run the shell as a pure window.
- *  - autoStartService: default true — only applies to the local default URL.
  *  - closeToTray:      default true.
  *  - windowMode:       'advanced' (mica/vibrancy) | 'compatibility'.
  *  - autoLaunch:       open at login.
@@ -15,7 +14,6 @@ import { dirname, join } from 'node:path'
 
 const DEFAULTS = {
   targetUrl: 'http://127.0.0.1:3080',
-  autoStartService: true,
   closeToTray: true,
   windowMode: 'advanced',
   autoLaunch: false,

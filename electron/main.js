@@ -12,7 +12,8 @@ import { app, BrowserWindow } from 'electron'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
-import { detect, start } from './service.js'
+import { detect } from './service.js'
+import { setupAutoUpdater } from './update.js'
 
 const isMac = process.platform === 'darwin'
 
@@ -56,22 +57,18 @@ if (!gotLock) {
     return mainWindow
   }
 
-  /** Launch-time backend bootstrap: detect, and auto-start when local. */
+  /**
+   * Launch-time backend detection. Detects whether a local dsh web is
+   * already running so the tray and window reflect the real state, but
+   * never auto-starts it — starting is a manual action (tray menu or the
+   * offline screen button) so it cannot fight an explicit "stop".
+   */
   async function bootstrapBackend() {
     const config = loadConfig()
     const target = config.targetUrl || 'http://127.0.0.1:3080'
-    const isLocalDefault = target === 'http://127.0.0.1:3080'
-    if (!isLocalDefault || config.autoStartService === false) return
-
-    const url = await detect()
-    if (!url) {
-      // Not running — try to start it, but never block window opening.
-      try {
-        await start({ backendPath: config.backendPath })
-      } catch {
-        // Backend unavailable; window still opens, tray shows the error.
-      }
-    }
+    // Remote targets are the user's own business — never probe local.
+    if (target !== 'http://127.0.0.1:3080') return
+    await detect()
     // Reflect the post-detect state in the tray menu.
     refreshTrayMenu()
   }
@@ -102,6 +99,9 @@ if (!gotLock) {
 
     // Backend bootstrap in background (never delays the window).
     bootstrapBackend().catch(() => {})
+
+    // Windows: wire the auto-updater (downloads new installers silently).
+    setupAutoUpdater()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
