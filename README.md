@@ -12,6 +12,7 @@
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek_Harness-rc.7-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 
 </div>
 
@@ -56,6 +57,15 @@
 
 ## 安装
 
+**方式一：从 Release 下载安装包（推荐普通用户）**
+
+- Windows：下载 `DSH-Clean-Desktop-Shell-Setup-<版本>.exe`
+- macOS：下载 `DSH-Clean-Desktop-Shell-<版本>.dmg`（Intel）或 `-arm64.dmg`（Apple Silicon）
+
+首次运行 Windows 安装包可能触发 SmartScreen 警告——**这是未签名程序的正常现象，不是病毒**，见下方「Windows SmartScreen 警告说明」。
+
+**方式二：作为 DSH 插件安装（开发者）**
+
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
@@ -63,6 +73,44 @@ dsh plugin --profile web add dsh-clean-desktop-shell
 重启 `dsh web` 后，从系统托盘/快捷方式启动桌面壳即可。
 
 > 桌面壳需要本机有可用的 `dsh web` 服务（或配置的远程地址）。见下方「使用」。
+
+### Windows SmartScreen 警告说明
+
+**为什么会看到警告？**
+
+我们的安装包**没有代码签名证书**（个人开源项目暂未购买，证书年费约数百美元）。Windows 的 Microsoft Defender SmartScreen 是一个**信誉系统**——它根据"下载量 + 干净运行的记录"判断一个程序是否可信。对下载量少、未签名的 exe，它无法确认信誉，就会警告。**这不代表文件有病毒**：本项目完全开源，代码可审阅，也可自行校验 SHA-256（见下）。
+
+**Edge 下载时会看到：**
+
+下载面板里该文件被标记为"不常下载的文件"，需要手动保留：
+
+1. 悬停下载项，点击右侧的 `...` 菜单
+2. 选择「保留」（Keep）
+3. 弹窗确认，选择「仍要保留」（Keep anyway）
+
+**双击安装时会看到：**
+
+蓝色对话框「Windows 已保护你的电脑」——Microsoft Defender SmartScreen 阻止了无法识别的应用启动：
+
+1. 点击「更多信息」（More info）
+2. 核对文件名确实是 `DSH-Clean-Desktop-Shell-Setup-<版本>.exe`
+3. 点击「仍要运行」（Run anyway）
+
+**备选：一次性解除锁定（推荐）**
+
+右键安装包 → 属性 → 常规 → 底部勾选「解除锁定」→ 确定。之后双击不再有警告。
+
+或 PowerShell 批量解除：
+
+```powershell
+Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.exe"
+```
+
+**关于文件安全性的说明**
+
+安装包由 GitHub Actions 从本仓库源码自动构建（见 `.github/workflows/build.yml`），代码完全开源可审阅。如仍有疑虑，可自行 `git clone` 后按「开发」一节本地构建比对，或稍等下载量积累——SmartScreen 信誉度上去后警告会自动消失。
+
+> 说明：代码签名证书（EV 或 Azure Trusted Signing）可以彻底消除这个警告，但需要付费且对个人开源维护者不划算。本仓库会在条件允许时考虑接入签名。
 
 ## 使用
 
@@ -102,6 +150,10 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 
 ### 0.1.0
 - 初始版本：Electron 壳骨架，系统托盘/单实例/开机自启，DSH 插件挂载。
+
+## 贡献
+
+欢迎任何形式的贡献——修 bug、加功能、改进文档都行。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（含项目结构、开发约定、提交规范、PR 流程），并遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。安全漏洞请走 [SECURITY.md](SECURITY.md) 的私密报告流程。
 
 ## 致谢
 

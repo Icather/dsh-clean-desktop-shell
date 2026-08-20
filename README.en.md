@@ -12,6 +12,7 @@ Does exactly one thing: wraps your already-configured DSH Web in a clean native 
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek_Harness-rc.7-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 
 </div>
 
@@ -57,6 +58,15 @@ Key differences from other desktop clients in the ecosystem:
 
 ## Install
 
+**Option 1: download the installer from Releases (recommended for end users)**
+
+- Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
+- macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
+
+The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
+
+**Option 2: install as a DSH plugin (developers)**
+
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
@@ -64,6 +74,40 @@ dsh plugin --profile web add dsh-clean-desktop-shell
 Restart `dsh web`, then launch the shell from the tray / shortcut.
 
 > The shell needs a reachable `dsh web` service (local or configured remote address). See Usage.
+
+### Windows SmartScreen warning
+
+**Why does the warning appear?**
+
+Our installer has **no code signing certificate** (a personal open-source project — certificates cost a few hundred USD per year). Microsoft Defender SmartScreen is a **reputation system**: it decides whether a program is trusted based on download volume plus a history of clean executions. For a rarely-downloaded, unsigned `.exe` it cannot confirm reputation, so it warns. **This does not mean the file is a virus**: the project is fully open source and the binaries are built by GitHub Actions from this repository (see `.github/workflows/build.yml`).
+
+**When Edge downloads the file:**
+
+It may be flagged as "not commonly downloaded". To keep it:
+
+1. Hover the download entry and click the `...` menu on the right
+2. Choose **Keep**
+3. Confirm with **Keep anyway**
+
+**When you double-click the installer:**
+
+A blue dialog appears: "Windows protected your PC" — Microsoft Defender SmartScreen prevented an unrecognized app from starting.
+
+1. Click **More info**
+2. Verify the file name is `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
+3. Click **Run anyway**
+
+**Alternative: unblock the file once (recommended)**
+
+Right-click the installer → Properties → General → tick **Unblock** at the bottom → OK. No more warnings afterwards.
+
+Or bulk-unblock via PowerShell:
+
+```powershell
+Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.exe"
+```
+
+> A code signing certificate (EV or Azure Trusted Signing) would remove this warning entirely, but it costs money and is rarely worth it for individual open-source maintainers. We may adopt signing when the project allows.
 
 ## Usage
 
@@ -113,6 +157,10 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 
 ### 0.1.0
 - Initial release: Electron shell skeleton, system tray / single instance / auto-launch, DSH plugin mounting.
+
+## Contributing
+
+Contributions of any kind are welcome — bug fixes, features, docs. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first (project layout, dev conventions, commit style, PR flow) and follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security issues: report privately via [SECURITY.md](SECURITY.md).
 
 ## Credits
 
