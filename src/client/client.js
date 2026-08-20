@@ -1,10 +1,19 @@
 /**
  * dsh-clean-desktop-shell — client half (web browser bundle).
  *
- * Registers a settings row so the shell's target URL / material options
- * are editable from Settings → General. This is a minimal placeholder:
- * real UI wiring lands with the Electron shell work.
+ * The shell is a standalone Electron window; it injects nothing into the
+ * dsh web UI. This client module exists only to satisfy the client-modules
+ * loader contract — a bundle's client entry must register itself via
+ * `window.__ModuleLoader__.load({ id, factory })`, otherwise dsh reports
+ * "loaded without registering … via __ModuleLoader__.load".
  */
-export function apply() {
-  // placeholder: settings-row wiring arrives with the shell implementation
-}
+window.__ModuleLoader__.load({
+  id: 'dsh-clean-desktop-shell',
+  factory: () => {
+    var module = { exports: {} };
+    var exports = module.exports;
+    Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+    exports.apply = () => {};
+    return module.exports;
+  },
+});

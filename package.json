@@ -10,6 +10,7 @@
     "src/",
     "scripts/",
     "build/icon.png",
+    "build/icon.ico",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
