@@ -18,6 +18,9 @@ const DEFAULTS = {
   windowMode: 'advanced',
   autoLaunch: false,
   backendPath: null,
+  // True once the first-run "create a desktop shortcut?" prompt was shown
+  // (so it never nags again). The tray item stays available regardless.
+  shortcutAsked: false,
 }
 
 let cached = null

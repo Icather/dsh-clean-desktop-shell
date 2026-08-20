@@ -8,12 +8,13 @@
  *
  * The main window is a pure shell — all backend controls live in the tray.
  */
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
 import { detect } from './service.js'
 import { setupAutoUpdater } from './update.js'
+import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut } from './shortcut.js'
 
 const isMac = process.platform === 'darwin'
 
@@ -73,6 +74,32 @@ if (!gotLock) {
     refreshTrayMenu()
   }
 
+  /**
+   * First-run desktop shortcut prompt (Windows packaged apps only).
+   * Asks once; the tray "create desktop shortcut" item stays available
+   * forever, so saying no is never a dead end.
+   */
+  async function ensureShortcut() {
+    if (!shortcutSupported() || loadConfig().shortcutAsked) return
+    saveConfig({ ...loadConfig(), shortcutAsked: true })
+    if (await hasDesktopShortcut()) return
+    const choice = dialog.showMessageBoxSync({
+      type: 'question',
+      title: '创建桌面快捷方式？',
+      message: '是否在桌面创建「DSH Clean Desktop Shell」快捷方式？',
+      detail: '选择「跳过」也不影响使用——之后可随时在托盘右键菜单中一键添加。',
+      buttons: ['创建', '跳过'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (choice === 0) {
+      const ok = await createDesktopShortcut()
+      if (!ok) {
+        dialog.showErrorBox('创建快捷方式失败', '无法在桌面创建快捷方式。可稍后在托盘右键菜单中重试。')
+      }
+    }
+  }
+
   app.whenReady().then(async () => {
     await createWindow()
     tray = createTray({
@@ -102,6 +129,9 @@ if (!gotLock) {
 
     // Windows: wire the auto-updater (downloads new installers silently).
     setupAutoUpdater()
+
+    // First run: offer a desktop shortcut (never nags twice).
+    ensureShortcut().catch(() => {})
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

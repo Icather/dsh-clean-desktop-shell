@@ -20,6 +20,7 @@ import {
 } from './service.js'
 import { showProgress, setProgress, closeProgress } from './progress.js'
 import { checkForUpdate, checkForUpdatesAuto, isAutoUpdateSupported, openRepo, openUrl } from './update.js'
+import { shortcutSupported, createDesktopShortcut } from './shortcut.js'
 
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -59,6 +60,26 @@ export function refreshTrayMenu() {
     {
       label: '刷新窗口',
       click: onReload,
+    },
+    {
+      label: '创建桌面快捷方式',
+      enabled: shortcutSupported(),
+      click: async () => {
+        const ok = await createDesktopShortcut()
+        if (ok) {
+          dialog.showMessageBoxSync({
+            type: 'info',
+            title: '已创建',
+            message: '桌面快捷方式已创建。',
+          })
+        } else {
+          dialog.showMessageBoxSync({
+            type: 'warning',
+            title: '创建失败',
+            message: '无法创建桌面快捷方式，请稍后重试。',
+          })
+        }
+      },
     },
     { type: 'separator' },
     { label: `后端：${label}`, enabled: false },
