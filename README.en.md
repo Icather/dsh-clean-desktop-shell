@@ -29,6 +29,25 @@ Key differences from other desktop clients in the ecosystem:
 | **Visual changes** | Custom title bar / frosted glass etc. | **None** — pure window shell |
 | **Upstream** | Pinned version | **Tracks rc.7** |
 
+## Usage
+
+1. If the plugin is installed, launching `dsh` from the command line pops up the desktop window automatically; you can also double-click the desktop shortcut created by the plugin — on par with a native desktop app.
+2. Everything from the original web UI works as-is.
+3. Detailed settings live in the tray right-click menu. The main window adds no controls of its own, keeping the page clean.
+
+**All backend controls live in the tray** — the main window stays a pure shell:
+
+- Start / restart / stop the backend (with progress dialogs; stopping really shuts down the service on 3080, including externally started instances)
+- Auto-detect backend · set the backend install folder (auto-detect default)
+- Reload window · create desktop shortcut · check for updates · repo homepage
+
+**Window reliability (Edge-style instant refresh):**
+
+- Shows immediately on launch, never waits for the backend
+- While the backend is down, a local "backend offline" screen is shown and re-probed; the real page loads automatically the moment it answers
+- The instant the backend stops (tray stop, kill or crash) the window flips back to the offline screen — a stale page never fakes "still alive"
+- The offline screen has self-service buttons: reload / start backend / auto-detect backend / set backend install folder
+
 ## Install
 
 **Option 1: download the installer from Releases (for a standalone desktop app)**
@@ -87,22 +106,30 @@ Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.e
 ## Architecture
 
 ```
-        ┌─────────────────── Core (dsh web / headless service) ───────────────────┐
-        │  Sessions · Agent · Plugins · Memory live here, decoupled from UI       │
-        └─────────────────────────────────────────────────────────────────────────┘
-                              ▲
-              ┌───────────────┴───────────────┐
-              │   dsh-clean-desktop-shell      │
-              │   Electron shell (client)      │
-              │   tray · single-instance ·     │
-              │                              │
-              └────────────────────────────────┘
+        ┌────────────── Core (dsh web / headless service) ──────────────┐
+        │    Sessions · Agent · Plugins · Memory live here,            │
+        │    decoupled from the UI                                     │
+        └───────────────────────────┬───────────────────────────────────┘
+                                    │  http://127.0.0.1:3080 (or remote)
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │            dsh-clean-desktop-shell (Electron shell)       │
+        │      tray · single-instance · offline auto-reconnect      │
+        │      · desktop shortcut                                    │
+        │                                                           │
+        │    One shell codebase, two distribution forms:            │
+        │     ├─ Installer: standalone exe, auto-update             │
+        │     └─ Plugin: auto-pops on dsh web start                 │
+        │        (self-managed Electron runtime)                     │
+        └───────────────────────────────────────────────────────────┘
 ```
 
+- **Shell / core separation**: the shell handles only the window, tray and backend management; sessions, agents, plugins and memory all live in the core, decoupled from the UI.
 - **Default**: loads the local `127.0.0.1:3080` (your configured web profile, zero migration).
 - **Remote-capable**: configure any remote DSH address; the shell is just a window. Phones / Linux / other devices can reach the core via browser or PWA — the shell is never bound to a local service.
+- **One shell codebase, two distribution forms**: the installer (standalone exe) and the plugin (launches with `dsh web`) share the same `electron/` code — only the runtime source and launch differ (see Install).
 
-### Platform matrix
+## Platform matrix
 
 | Platform | Shell | Status |
 |:--|:--|:--|
@@ -110,29 +137,6 @@ Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.e
 | macOS | ✅ Electron (hiddenInset) | Released (CI builds Intel + Apple Silicon DMG) |
 | Linux | — (browser / PWA to the core) | Not planned |
 | Termux / phone / tablet | — (headless / PWA to the core) | Covered by remote core access |
-
-## Usage
-
-1. Start `dsh web` (or configure a remote service address).
-2. Launch the shell: it auto-detects local 3080 — loads the page if the backend is up, otherwise shows the "backend offline" screen where you can start it in one click.
-3. Drag the window by its top area (right side reserved for native buttons); close minimizes to tray by default.
-
-**All backend controls live in the tray** — the main window stays a pure shell:
-
-- Start / restart / stop the backend (with progress dialogs; stopping really
-  shuts down the service on 3080, including externally started instances)
-- Auto-detect backend · set the backend install folder (auto-detect default)
-- Reload window · check for updates · repo homepage
-
-**Window reliability (Edge-style instant refresh):**
-
-- Shows immediately on launch, never waits for the backend
-- While the backend is down, a local "backend offline" screen is shown and
-  re-probed; the real page loads automatically the moment it answers
-- The instant the backend stops (tray stop, kill or crash) the window flips
-  back to the offline screen — a stale page never fakes "still alive"
-- The offline screen has self-service buttons: reload / start backend /
-  auto-detect backend / set backend install folder
 
 ## Development
 
