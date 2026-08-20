@@ -10,10 +10,26 @@
  * this project does not have yet).
  */
 import { app, shell, dialog } from 'electron'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { showProgress, setProgress, closeProgress } from './progress.js'
+import { loadConfig } from './config.js'
 
 const REPO_URL = 'https://github.com/Icather/dsh-clean-desktop-shell'
 const RELEASES_API = 'https://api.github.com/repos/Icather/dsh-clean-desktop-shell/releases/latest'
+
+// Plugin (bare-runtime) mode has no app bundle, so app.getVersion() returns
+// the Electron runtime version (e.g. 33.4.11). Read the plugin's own version
+// from its package.json instead.
+const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const PKG_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version
+  } catch {
+    return null
+  }
+})()
 
 let autoUpdater = null
 let updaterPromise = null
@@ -111,17 +127,20 @@ export async function checkForUpdatesAuto() {
 
   // Manual path (macOS / dev mode): compare versions, offer GitHub page.
   const r = await checkForUpdate()
+  const isPlugin = !app.isPackaged
   if (r.hasUpdate) {
     const choice = dialog.showMessageBoxSync({
       type: 'info',
       title: '发现新版本',
       message: `当前版本 ${r.current}，最新版本 ${r.latest}。`,
-      detail: 'macOS 自动更新需要代码签名，当前请前往 GitHub Releases 手动下载。',
-      buttons: ['前往下载', '取消'],
+      detail: isPlugin
+        ? '插件形态请到 DSH 网页的「设置 → 插件市场 → 已安装」里点「更新」，完成后按提示重启即可生效。'
+        : 'macOS 自动更新需要代码签名，当前请前往 GitHub Releases 手动下载。',
+      buttons: isPlugin ? ['打开 DSH 网页', '稍后'] : ['前往下载', '取消'],
       defaultId: 0,
       cancelId: 1,
     })
-    if (choice === 0) openUrl(r.url)
+    if (choice === 0) openUrl(isPlugin ? loadConfig().targetUrl : r.url)
   } else if (r.latest) {
     dialog.showMessageBoxSync({
       type: 'info',
@@ -144,6 +163,15 @@ function parseVersion(v) {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
 }
 
+/**
+ * Current app version. Packaged builds carry it in the exe; a bare runtime
+ * (plugin mode) must read the plugin package.json — app.getVersion() would
+ * report the Electron runtime version there.
+ */
+function currentVersion() {
+  return app.isPackaged ? app.getVersion() : PKG_VERSION || app.getVersion()
+}
+
 /** True when a is strictly newer than b. */
 function isNewer(a, b) {
   if (!a || !b) return false
@@ -158,7 +186,7 @@ function isNewer(a, b) {
  * @returns {{ hasUpdate: boolean, latest?: string, current: string, url: string }}
  */
 export async function checkForUpdate() {
-  const current = app.getVersion()
+  const current = currentVersion()
   let latest = null
   let tag = null
   let url = REPO_URL
