@@ -12,7 +12,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node --check lib/index.js",
-    "pack": "electron-builder --win nsis --mac dmg"
+    "dev": "electron electron/main.js",
+    "dev:win": "electron electron/main.js --mode=advanced",
+    "pack": "electron-builder --win nsis",
+    "pack:mac": "electron-builder --mac dmg",
+    "pack:win": "electron-builder --win nsis"
   },
   "dsh": {
     "bundle": {
@@ -29,20 +33,60 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": "*",
-    "electron": "*"
+    "@deepseek-ai/dsh": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {
-      "optional": true
-    },
-    "electron": {
       "optional": true
     }
   },
   "devDependencies": {
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3"
   },
-  "license": "MIT"
+  "build": {
+    "appId": "com.icather.dsh-clean-desktop-shell",
+    "productName": "DSH Clean Desktop Shell",
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "lib/**/*",
+      "src/**/*",
+      "package.json",
+      "cordis.patch.yml"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "license": "MIT",
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
 }
