@@ -11,6 +11,8 @@
  */
 import { spawn } from 'node:child_process'
 import { access } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { loadConfig } from './config.js'
 
 const DEFAULT_PORT = 3080
 
@@ -160,19 +162,60 @@ export async function restart(options) {
   return await start(options)
 }
 
+/**
+ * Check whether a folder contains a usable dsh CLI.
+ * Returns the resolved executable path, or null.
+ */
+export async function findDshInFolder(folder) {
+  if (!folder) return null
+  const candidates = [
+    joinCmd(folder, 'dsh.cmd'),
+    joinCmd(folder, 'dsh'),
+    joinCmd(folder, 'bin', 'dsh.cmd'),
+    joinCmd(folder, 'node_modules', '.bin', 'dsh.cmd'),
+  ]
+  for (const c of candidates) {
+    if (await exists(c)) return c
+  }
+  return null
+}
+
+/**
+ * Auto-detect the dsh install folder (the folder that contains the dsh
+ * CLI), following the same resolution order used to start the backend:
+ * PATH → common Windows install locations. Returns the folder path or null.
+ */
+export async function detectInstallFolder() {
+  // 1) Explicit backend folder from config.
+  const cfgPath = getConfiguredBackendPath()
+  if (cfgPath) {
+    const found = await findDshInFolder(cfgPath)
+    if (found) return dirOf(found)
+  }
+
+  // 2) `dsh` on PATH → resolve where it actually lives.
+  const onPath = await commandPath('dsh')
+  if (onPath) return dirOf(onPath)
+
+  // 3) Common locations.
+  if (process.platform === 'win32') {
+    const candidates = [
+      'D:\\deepseek-harness\\prod\\node_modules\\.bin\\dsh.cmd',
+      `${process.env.USERPROFILE}\\AppData\\Roaming\\npm\\dsh.cmd`,
+    ]
+    for (const c of candidates) {
+      if (await exists(c)) return dirOf(c)
+    }
+  }
+  return null
+}
+
 /** Locate a usable dsh CLI. */
 async function resolveDshCommand(backendPath) {
   // 1) Explicit backend folder from config — look for dsh(.cmd/.exe) inside.
   if (backendPath) {
-    const candidates = [
-      joinCmd(backendPath, 'dsh.cmd'),
-      joinCmd(backendPath, 'dsh'),
-      joinCmd(backendPath, 'bin', 'dsh.cmd'),
-      joinCmd(backendPath, 'node_modules', '.bin', 'dsh.cmd'),
-    ]
-    for (const c of candidates) {
-      if (await exists(c)) return { command: c, args: [] }
-    }
+    const found = await findDshInFolder(backendPath)
+    if (found) return { command: found, args: [] }
   }
 
   // 2) `dsh` on PATH
@@ -193,6 +236,35 @@ async function resolveDshCommand(backendPath) {
 
 function joinCmd(...parts) {
   return parts.join(process.platform === 'win32' ? '\\' : '/')
+}
+
+function dirOf(p) {
+  return dirname(p)
+}
+
+function getConfiguredBackendPath() {
+  try {
+    return loadConfig().backendPath || null
+  } catch {
+    return null
+  }
+}
+
+/** Resolve a command on PATH to its absolute path (Windows: where.exe). */
+function commandPath(cmd) {
+  return new Promise((resolve) => {
+    const finder = process.platform === 'win32' ? 'where' : 'which'
+    const c = spawn(finder, [cmd], { windowsHide: true })
+    let out = ''
+    c.stdout.on('data', (d) => {
+      out += d.toString()
+    })
+    c.on('error', () => resolve(null))
+    c.on('exit', () => {
+      const line = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean)
+      resolve(line || null)
+    })
+  })
 }
 
 function commandExists(cmd) {

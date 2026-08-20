@@ -8,7 +8,7 @@ import { Tray, Menu, dialog, nativeImage } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig } from './config.js'
-import { getStatus, start, stop, restart, detect } from './service.js'
+import { getStatus, start, stop, restart, detect, findDshInFolder, detectInstallFolder } from './service.js'
 
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -85,16 +85,37 @@ export function refreshTrayMenu() {
       },
     },
     {
-      label: '设置后端文件夹…',
+      label: '设置后端安装文件夹…',
       click: async () => {
+        // Default location: auto-detect the dsh install folder first.
+        const detected = await detectInstallFolder()
+        const defaultFolder = detected || config.backendPath || undefined
         const result = await dialog.showOpenDialog({
-          title: '选择后端文件夹（定位到 dsh 可执行文件所在位置）',
+          title: '选择dsh后端安装文件夹',
           buttonLabel: '选择此文件夹',
+          message: '默认安装用自动探测。可手动指定 dsh 后端安装文件夹（包含 dsh 可执行文件）。',
           properties: ['openDirectory'],
-          defaultPath: config.backendPath || undefined,
+          defaultPath: defaultFolder,
         })
         if (!result.canceled && result.filePaths[0]) {
-          saveConfig({ ...loadConfig(), backendPath: result.filePaths[0] })
+          const folder = result.filePaths[0]
+          saveConfig({ ...loadConfig(), backendPath: folder })
+          const found = await findDshInFolder(folder)
+          if (found) {
+            dialog.showMessageBox({
+              type: 'info',
+              title: '后端安装文件夹已设置',
+              message: `已找到 dsh：\n${found}`,
+            })
+          } else {
+            dialog.showMessageBox({
+              type: 'warning',
+              title: '未在此文件夹找到 dsh',
+              message:
+                '此文件夹内未找到 dsh 可执行文件。已保存该路径，但启动后端时可能失败——\n' +
+                '请确认选择的是包含 dsh（dsh.cmd / bin/dsh.cmd / node_modules/.bin/dsh.cmd）的文件夹。',
+            })
+          }
         }
         refreshTrayMenu()
       },
