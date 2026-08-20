@@ -2,9 +2,9 @@
 
 # dsh-clean-desktop-shell
 
-**A clean frosted-glass desktop shell for DeepSeek Harness, shipped as a DSH plugin**
+**A clean desktop shell for DeepSeek Harness, shipped as a DSH plugin**
 
-Reuses your existing web profile with native Mica / vibrancy window material. Shell and core are decoupled: loads the local `127.0.0.1:3080` by default, or any remote DSH service you configure.
+Does exactly one thing: wraps your already-configured DSH Web in a clean native desktop window — system tray, single instance, auto-launch, just like a normal app. No frosted glass, no fancy materials. **Clean.**
 
 [English](README.en.md) · [中文](README.md)
 
@@ -17,7 +17,7 @@ Reuses your existing web profile with native Mica / vibrancy window material. Sh
 
 ## What is this
 
-`dsh-clean-desktop-shell` is a **DSH-plugin-shaped desktop shell**: it wraps an already-running DSH Web (default `http://127.0.0.1:3080`) in a native desktop window — **Mica (Windows 11) / vibrancy (macOS) frosted glass over your wallpaper** — with system tray, single instance and auto-launch, so it behaves like any normal desktop app.
+`dsh-clean-desktop-shell` is a **DSH-plugin-shaped clean desktop shell**: it wraps an already-running DSH Web (default `http://127.0.0.1:3080`) in a native desktop window — system tray, single instance, auto-launch, so it behaves like any normal desktop app. **No visual changes at all**: no frosted glass, no skinning — purely a window shell.
 
 Key differences from other desktop clients in the ecosystem:
 
@@ -25,7 +25,7 @@ Key differences from other desktop clients in the ecosystem:
 |:--|:--|:--|
 | **Form** | Standalone Electron app with its own profile | **DSH plugin** mounted into your existing profile |
 | **Profile** | New `desktop` profile, plugins/config must be reinstalled | **Reuses your web profile**, zero migration |
-| **Frosted glass** | Mostly not implemented | **Native Mica / vibrancy** |
+| **Visual changes** | Custom title bar / frosted glass etc. | **None** — pure window shell |
 | **Upstream** | Pinned version | **Tracks rc.7** |
 
 ## Architecture
@@ -36,9 +36,10 @@ Key differences from other desktop clients in the ecosystem:
         └─────────────────────────────────────────────────────────────────────────┘
                               ▲
               ┌───────────────┴───────────────┐
-              │  dsh-clean-desktop-shell       │
-              │  Electron shell (client)       │
-              │  Win: Mica · macOS: vibrancy   │
+              │   dsh-clean-desktop-shell      │
+              │   Electron shell (client)      │
+              │   tray · single-instance ·     │
+              │   auto-launch                  │
               └────────────────────────────────┘
 ```
 
@@ -47,12 +48,12 @@ Key differences from other desktop clients in the ecosystem:
 
 ### Platform matrix
 
-| Platform | Shell | Frosted glass | Status |
-|:--|:--|:--|:--|
-| Windows 11 | ✅ Electron | Mica | First release target |
-| macOS | ✅ Electron | vibrancy | Planned |
-| Linux | — (browser / PWA to the core) | — | Not planned |
-| Termux / phone / tablet | — (headless / PWA to the core) | — | Covered by remote core access |
+| Platform | Shell | Status |
+|:--|:--|:--|
+| Windows | ✅ Electron (frameless + native window buttons) | First release target |
+| macOS | ✅ Electron (hiddenInset) | Planned |
+| Linux | — (browser / PWA to the core) | Not planned |
+| Termux / phone / tablet | — (headless / PWA to the core) | Covered by remote core access |
 
 ## Install
 
@@ -68,20 +69,21 @@ Restart `dsh web`, then launch the shell from the tray / shortcut.
 
 1. Start `dsh web` (or configure a remote service address).
 2. Launch the shell: it auto-detects local 3080; if not running it starts the service per configuration.
-3. Window controls: minimize / maximize / close (close minimizes to tray by default).
+3. Drag the window by its top area (right side reserved for native buttons); close minimizes to tray by default.
 
 ## Development
 
 ```sh
 npm install
 npm run build   # build the plugin bundle
-npm run pack    # package NSIS (Win) + DMG (mac)
+npm run dev     # launch the shell (dev mode)
+npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
 
 ### 0.1.0
-- Initial release: Electron shell skeleton, Mica / vibrancy window material, DSH plugin mounting.
+- Initial release: Electron shell skeleton, system tray / single instance / auto-launch, DSH plugin mounting.
 
 ## Credits
 

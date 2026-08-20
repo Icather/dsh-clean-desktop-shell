@@ -2,9 +2,9 @@
 
 # dsh-clean-desktop-shell
 
-**DeepSeek Harness 的干净毛玻璃桌面壳（DSH 插件形态）**
+**DeepSeek Harness 的纯净桌面壳（DSH 插件形态）**
 
-复用你现有的 web profile，Mica / vibrancy 原生毛玻璃透出壁纸。壳与内核解耦：默认加载本地 `127.0.0.1:3080`，也可连接任意远程 DSH 服务。
+只做一件事：给已配置好的 DSH Web 加一层干净的桌面窗口——系统托盘、单实例、开机自启、像普通软件一样用。无毛玻璃、无花哨材质，**纯净**。
 
 [English](README.en.md) · [中文](README.md)
 
@@ -17,7 +17,7 @@
 
 ## 这是什么
 
-`dsh-clean-desktop-shell` 是一个 **DSH 插件形态** 的桌面壳：它给已经跑起来的 DSH Web（默认 `http://127.0.0.1:3080`）套一层原生桌面窗口——**Mica（Windows 11）/ vibrancy（macOS）毛玻璃透壁纸**，带系统托盘、单实例、开机自启，像普通桌面软件一样使用。
+`dsh-clean-desktop-shell` 是一个 **DSH 插件形态** 的纯净桌面壳：它给已经跑起来的 DSH Web（默认 `http://127.0.0.1:3080`）套一层原生桌面窗口——系统托盘、单实例、开机自启，像普通桌面软件一样使用。**不做任何视觉改造**：不加毛玻璃、不改界面，纯粹是"窗口壳"。
 
 与生态里其他桌面端方案的最大区别：
 
@@ -25,7 +25,7 @@
 |:--|:--|:--|
 | **形态** | 独立 Electron 应用，自带独立 profile | **DSH 插件**，挂载进现有 profile |
 | **Profile** | 新建 desktop profile，插件/配置要重装 | **复用现有 web profile**，零迁移 |
-| **毛玻璃** | 多数未实现 | **Mica / vibrancy 原生材质** |
+| **视觉改造** | 自绘标题栏 / 毛玻璃等 | **零改造**，纯净窗口壳 |
 | **跟随上游** | 固定版本 | **跟随 rc.7** |
 
 ## 架构
@@ -36,9 +36,9 @@
         └─────────────────────────────────────────────────────────────────────────┘
                               ▲
               ┌───────────────┴───────────────┐
-              │    dsh-clean-desktop-shell     │
+              │   dsh-clean-desktop-shell      │
               │   Electron 壳（客户端）          │
-              │   Win: Mica · macOS: vibrancy  │
+              │   托盘 · 单实例 · 开机自启       │
               └────────────────────────────────┘
 ```
 
@@ -47,12 +47,12 @@
 
 ### 平台矩阵
 
-| 平台 | 壳 | 毛玻璃 | 状态 |
-|:--|:--|:--|:--|
-| Windows 11 | ✅ Electron | Mica | 首发目标 |
-| macOS | ✅ Electron | vibrancy | 规划中 |
-| Linux | —（浏览器 / PWA 直连内核） | — | 不做 |
-| Termux / 手机 / 平板 | —（headless / PWA 直连内核） | — | 由内核远程访问支持 |
+| 平台 | 壳 | 状态 |
+|:--|:--|:--|
+| Windows | ✅ Electron（无边框 + 原生窗口按钮） | 首发目标 |
+| macOS | ✅ Electron（hiddenInset） | 规划中 |
+| Linux | —（浏览器 / PWA 直连内核） | 不做 |
+| Termux / 手机 / 平板 | —（headless / PWA 直连内核） | 由内核远程访问支持 |
 
 ## 安装
 
@@ -68,20 +68,21 @@ dsh plugin --profile web add dsh-clean-desktop-shell
 
 1. 启动 `dsh web`（或配置远程服务地址）。
 2. 启动桌面壳：自动检测本地 3080；未运行时按配置拉起服务。
-3. 窗口右上角控制：最小化 / 最大化 / 关闭（关闭默认缩到托盘）。
+3. 窗口顶部（右侧留系统按钮）可拖动窗口；关闭默认缩到托盘。
 
 ## 开发
 
 ```sh
 npm install
 npm run build   # 构建插件 bundle
-npm run pack    # 打包 NSIS (Win) + DMG (mac)
+npm run dev     # 启动壳（开发模式）
+npm run pack    # 打包 NSIS (Win) / DMG (mac)
 ```
 
 ## 更新历史
 
 ### 0.1.0
-- 初始版本：Electron 壳骨架，Mica / vibrancy 窗口材质，DSH 插件挂载。
+- 初始版本：Electron 壳骨架，系统托盘/单实例/开机自启，DSH 插件挂载。
 
 ## 致谢
 
