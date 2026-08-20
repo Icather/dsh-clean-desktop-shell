@@ -21,7 +21,16 @@
  * the runtime provisioning differs.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, readdirSync, renameSync, statSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -55,7 +64,7 @@ export function apply(ctx) {
 
 function electronVersion() {
   try {
-    const meta = JSON.parse(require('node:fs').readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))
+    const meta = JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))
     return meta.desktopShell?.electronVersion || null
   } catch {
     return null
@@ -87,13 +96,11 @@ async function ensureRuntime(ctx) {
     return exe
   }
 
-  // 2) Local reuse: DSH_SHELL_ELECTRON_DIR → copy its dist/ (fast).
+  // 2) Local reuse: DSH_SHELL_ELECTRON_DIR → link/copy its dist/ (fast).
   const localSrc = process.env.DSH_SHELL_ELECTRON_DIR
   if (localSrc) {
     const srcExe = join(localSrc, 'dist', EXE_NAME)
-    if (existsSync(srcExe)) {
-      mkdirSync(dir, { recursive: true })
-      copyDist(localSrc, dir)
+    if (existsSync(srcExe) && provisionLocalDist(localSrc, dir)) {
       ctx.logger.info(`[clean-desktop-shell] reused electron runtime from ${localSrc}`)
     }
   }
@@ -192,9 +199,30 @@ function cleanupOldVersions(root, currentDir) {
   }
 }
 
-function copyDist(src, dest) {
-  const { cpSync } = require('node:fs')
-  cpSync(join(src, 'dist'), join(dest, 'dist'), { recursive: true })
+/**
+ * Provision a local electron package's dist/ as the version dir itself,
+ * so the layout matches a downloaded runtime: <dir>/electron(.exe) at the
+ * version-dir root. Windows: junction (zero-copy, instant) — a 269MB
+ * recursive cpSync can be killed by sandbox/AV on large trees, so only
+ * fall back to a copy.
+ */
+function provisionLocalDist(srcPkg, destDir) {
+  if (isWin) {
+    try {
+      rmSync(destDir, { recursive: true, force: true })
+      symlinkSync(join(srcPkg, 'dist'), destDir, 'junction')
+      return true
+    } catch {
+      // fall through to a real copy
+    }
+  }
+  try {
+    rmSync(destDir, { recursive: true, force: true })
+    cpSync(join(srcPkg, 'dist'), destDir, { recursive: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ---------- shell launch ----------
