@@ -1,6 +1,6 @@
 {
   "name": "dsh-clean-desktop-shell",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Clean desktop shell for DeepSeek Harness (DSH) as a DSH plugin — reuses your web profile, tray/single-instance/auto-launch, zero visual changes. DSH 插件形态的纯净桌面壳：复用现有 web profile，托盘管理后端，零视觉改造。",
   "type": "module",
   "main": "lib/index.js",
