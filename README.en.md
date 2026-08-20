@@ -50,8 +50,8 @@ Key differences from other desktop clients in the ecosystem:
 
 | Platform | Shell | Status |
 |:--|:--|:--|
-| Windows | ✅ Electron (frameless + native window buttons) | First release target |
-| macOS | ✅ Electron (hiddenInset) | Planned |
+| Windows | ✅ Electron (frameless + native window buttons) | Released (NSIS installer) |
+| macOS | ✅ Electron (hiddenInset) | Released (CI builds Intel + Apple Silicon DMG) |
 | Linux | — (browser / PWA to the core) | Not planned |
 | Termux / phone / tablet | — (headless / PWA to the core) | Covered by remote core access |
 
@@ -71,6 +71,23 @@ Restart `dsh web`, then launch the shell from the tray / shortcut.
 2. Launch the shell: it auto-detects local 3080; if not running it starts the service per configuration.
 3. Drag the window by its top area (right side reserved for native buttons); close minimizes to tray by default.
 
+**All backend controls live in the tray** — the main window stays a pure shell:
+
+- Start / restart / stop the backend (with progress dialogs; stopping really
+  shuts down the service on 3080, including externally started instances)
+- Auto-detect backend · set the backend install folder (auto-detect default)
+- Reload window · check for updates · repo homepage · auto-launch
+
+**Window reliability (Edge-style instant refresh):**
+
+- Shows immediately on launch, never waits for the backend
+- While the backend is down, a local "backend offline" screen is shown and
+  re-probed; the real page loads automatically the moment it answers
+- The instant the backend stops (tray stop, kill or crash) the window flips
+  back to the offline screen — a stale page never fakes "still alive"
+- The offline screen has self-service buttons: reload / start backend /
+  auto-detect backend / set backend install folder
+
 ## Development
 
 ```sh
@@ -81,6 +98,18 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.1
+- Backend lifecycle: fixed `spawn EINVAL` / stuck "starting" on Windows;
+  "stop backend" now really shuts the service down (including externally
+  started instances); start/restart/stop show progress dialogs.
+- Window reliability: shows instantly on double-click; flips to the offline
+  screen the moment the backend stops; auto-reconnects when it comes back
+  (Edge-style instant refresh).
+- Offline screen self-service: reload / start backend / auto-detect backend /
+  set backend install folder.
+- Tray: new "reload window" item; macOS builds released (Intel + Apple
+  Silicon DMG).
 
 ### 0.1.0
 - Initial release: Electron shell skeleton, system tray / single instance / auto-launch, DSH plugin mounting.
