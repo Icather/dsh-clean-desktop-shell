@@ -58,20 +58,20 @@ Key differences from other desktop clients in the ecosystem:
 
 ## Install
 
-**Option 1: download the installer from Releases (recommended for end users)**
+**Option 1: download the installer from Releases (recommended, the only full install)**
 
 - Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
 - macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
 
-The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
+The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray, auto-launch). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
 
-**Option 2: install as a DSH plugin (developers)**
+**Option 2: register as a DSH plugin (developers/power users only — not an install alternative)**
 
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
 
-Restart `dsh web`, then launch the shell from the tray / shortcut.
+> ⚠️ Registering the plugin does **not** install the desktop app or create a shortcut — it only mounts the shell into your DSH profile (reuses your web profile config, future settings integration). **You still need the Option 1 installer for the actual desktop app** (or run the source with `npm run dev`). End users: use Option 1.
 
 > The shell needs a reachable `dsh web` service (local or configured remote address). See Usage.
 

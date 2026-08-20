@@ -57,20 +57,20 @@
 
 ## 安装
 
-**方式一：从 Release 下载安装包（推荐普通用户）**
+**方式一：从 Release 下载安装包（推荐普通用户，唯一完整安装方式）**
 
 - Windows：下载 `DSH-Clean-Desktop-Shell-Setup-<版本>.exe`
 - macOS：下载 `DSH-Clean-Desktop-Shell-<版本>.dmg`（Intel）或 `-arm64.dmg`（Apple Silicon）
 
-首次运行 Windows 安装包可能触发 SmartScreen 警告——**这是未签名程序的正常现象，不是病毒**，见下方「Windows SmartScreen 警告说明」。
+安装包会**自动创建桌面快捷方式**，并提供系统托盘、开机自启等完整桌面体验。首次运行 Windows 安装包可能触发 SmartScreen 警告——**这是未签名程序的正常现象，不是病毒**，见下方「Windows SmartScreen 警告说明」。
 
-**方式二：作为 DSH 插件安装（开发者）**
+**方式二：作为 DSH 插件注册（仅开发者/高级用户，不是安装替代）**
 
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
 
-重启 `dsh web` 后，从系统托盘/快捷方式启动桌面壳即可。
+> ⚠️ 插件注册**不会**安装桌面应用，也不产生桌面快捷方式——它只是把壳登记进 DSH profile（复用 web profile 配置、供未来设置集成）。**桌面壳本体仍需通过方式一的安装包获得**（或源码 `npm run dev` 运行）。普通用户请直接使用方式一。
 
 > 桌面壳需要本机有可用的 `dsh web` 服务（或配置的远程地址）。见下方「使用」。
 
@@ -78,7 +78,7 @@ dsh plugin --profile web add dsh-clean-desktop-shell
 
 **为什么会看到警告？**
 
-我们的安装包**没有代码签名证书**（个人开源项目暂未购买，证书年费约数百美元）。Windows 的 Microsoft Defender SmartScreen 是一个**信誉系统**——它根据"下载量 + 干净运行的记录"判断一个程序是否可信。对下载量少、未签名的 exe，它无法确认信誉，就会警告。**这不代表文件有病毒**：本项目完全开源，代码可审阅，也可自行校验 SHA-256（见下）。
+我们的安装包**没有代码签名证书**（个人开源项目暂未购买，证书年费约数百美元）。Windows 的 Microsoft Defender SmartScreen 是一个**信誉系统**——它根据"下载量 + 干净运行的记录"判断一个程序是否可信。对下载量少、未签名的 exe，它无法确认信誉，就会警告。**这不代表文件有病毒**：本项目完全开源，代码可审阅，也可本地构建比对（见下）。
 
 **Edge 下载时会看到：**
 
