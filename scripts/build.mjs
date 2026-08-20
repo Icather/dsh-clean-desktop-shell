@@ -13,6 +13,9 @@ mkdirSync(join(root, 'lib'), { recursive: true })
 
 const pairs = [
   ['src/host/index.js', 'lib/index.js'],
+  ['src/host/common.js', 'lib/common.js'],
+  ['src/host/runtime.js', 'lib/runtime.js'],
+  ['src/host/icon.js', 'lib/icon.js'],
   ['src/client/client.js', 'lib/client.js'],
 ]
 for (const [src, dest] of pairs) {
