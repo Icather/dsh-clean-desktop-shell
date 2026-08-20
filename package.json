@@ -13,10 +13,9 @@
     "build": "node scripts/build.mjs",
     "check": "node --check lib/index.js",
     "dev": "electron electron/main.js",
-    "dev:win": "electron electron/main.js --mode=advanced",
+    "icons": "node scripts/gen-icons.mjs",
     "pack": "electron-builder --win nsis",
-    "pack:mac": "electron-builder --mac dmg",
-    "pack:win": "electron-builder --win nsis"
+    "pack:mac": "electron-builder --mac dmg"
   },
   "dsh": {
     "bundle": {
@@ -70,14 +69,14 @@
           ]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns"
+      "category": "public.app-category.developer-tools"
     },
     "nsis": {
       "oneClick": false,
