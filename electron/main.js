@@ -10,7 +10,7 @@
  */
 import { app, BrowserWindow } from 'electron'
 import { createMainWindow } from './window.js'
-import { createTray } from './tray.js'
+import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
 import { detect, start } from './service.js'
 
@@ -72,6 +72,8 @@ if (!gotLock) {
         // Backend unavailable; window still opens, tray shows the error.
       }
     }
+    // Reflect the post-detect state in the tray menu.
+    refreshTrayMenu()
   }
 
   app.whenReady().then(async () => {

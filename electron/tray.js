@@ -17,32 +17,33 @@ const trayIconPath = join(
 )
 
 let trayInstance = null
-let menuRefresh = null
+let handlers = null
 
 export function createTray({ onShow, onToggleAutoStart, onQuit }) {
-  const config = loadConfig()
   const icon = nativeImage.createFromPath(trayIconPath)
+
+  handlers = { onShow, onToggleAutoStart, onQuit }
 
   trayInstance = new Tray(icon)
   trayInstance.setToolTip('DSH Clean Desktop Shell')
   trayInstance.on('click', onShow)
 
-  refreshMenu({ onShow, onToggleAutoStart, onQuit, config })
+  refreshTrayMenu()
   return trayInstance
 }
 
 /** Rebuild the context menu (call after backend state changes). */
-function refreshMenu({ onShow, onToggleAutoStart, onQuit, config }) {
+export function refreshTrayMenu() {
+  if (!trayInstance || !handlers) return
+  const { onShow, onToggleAutoStart, onQuit } = handlers
+  const config = loadConfig()
   const st = getStatus()
   const label = statusLabel(st)
 
   const menu = Menu.buildFromTemplate([
     { label: '显示 / 打开窗口', click: onShow },
     { type: 'separator' },
-    {
-      label: `后端：${label}`,
-      enabled: false,
-    },
+    { label: `后端：${label}`, enabled: false },
     {
       label: '启动后端',
       enabled: st.status !== 'running' && st.status !== 'starting',
@@ -52,7 +53,7 @@ function refreshMenu({ onShow, onToggleAutoStart, onQuit, config }) {
         } catch (err) {
           dialog.showErrorBox('后端启动失败', err.message)
         }
-        refreshMenu({ onShow, onToggleAutoStart, onQuit, config: loadConfig() })
+        refreshTrayMenu()
       },
     },
     {
@@ -64,7 +65,7 @@ function refreshMenu({ onShow, onToggleAutoStart, onQuit, config }) {
         } catch (err) {
           dialog.showErrorBox('后端重启失败', err.message)
         }
-        refreshMenu({ onShow, onToggleAutoStart, onQuit, config: loadConfig() })
+        refreshTrayMenu()
       },
     },
     {
@@ -72,7 +73,7 @@ function refreshMenu({ onShow, onToggleAutoStart, onQuit, config }) {
       enabled: st.status === 'running' || st.status === 'starting',
       click: async () => {
         await stop()
-        refreshMenu({ onShow, onToggleAutoStart, onQuit, config: loadConfig() })
+        refreshTrayMenu()
       },
     },
     { type: 'separator' },
@@ -80,21 +81,22 @@ function refreshMenu({ onShow, onToggleAutoStart, onQuit, config }) {
       label: '自动探测后端',
       click: async () => {
         await detect()
-        refreshMenu({ onShow, onToggleAutoStart, onQuit, config: loadConfig() })
+        refreshTrayMenu()
       },
     },
     {
       label: '设置后端文件夹…',
       click: async () => {
         const result = await dialog.showOpenDialog({
-          title: '选择 dsh 后端所在文件夹',
+          title: '选择后端文件夹（定位到 dsh 可执行文件所在位置）',
+          buttonLabel: '选择此文件夹',
           properties: ['openDirectory'],
           defaultPath: config.backendPath || undefined,
         })
         if (!result.canceled && result.filePaths[0]) {
           saveConfig({ ...loadConfig(), backendPath: result.filePaths[0] })
         }
-        refreshMenu({ onShow, onToggleAutoStart, onQuit, config: loadConfig() })
+        refreshTrayMenu()
       },
     },
     { type: 'separator' },
