@@ -21,6 +21,29 @@ let currentStatus = 'stopped'
 let lastError = null
 let startResolver = null
 
+// Status-change listeners (tray menu auto-refresh, window auto-reload, ...).
+const listeners = new Set()
+
+/** Subscribe to backend status changes. Returns an unsubscribe function. */
+export function onStatusChange(cb) {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
+}
+
+function setStatus(next, error = null) {
+  if (currentStatus !== next || lastError !== error) {
+    currentStatus = next
+    lastError = error
+    for (const cb of listeners) {
+      try {
+        cb(getStatus())
+      } catch {
+        // listener errors must not break the state machine
+      }
+    }
+  }
+}
+
 export function getStatus() {
   return {
     status: currentStatus,
@@ -53,10 +76,10 @@ export async function detect() {
   const url = `http://127.0.0.1:${DEFAULT_PORT}`
   const up = await probe(url)
   if (up) {
-    currentStatus = 'running'
+    setStatus('running')
     return url
   }
-  currentStatus = 'stopped'
+  setStatus('stopped')
   return null
 }
 
@@ -72,51 +95,74 @@ export async function start({ backendPath } = {}) {
   // Backend path: explicit config → common locations → PATH.
   const resolved = await resolveDshCommand(backendPath)
   if (!resolved) {
-    lastError = '未找到 dsh 后端。请在托盘「设置后端文件夹」中指定 dsh CLI 所在目录。'
-    currentStatus = 'error'
+    setStatus('error', '未找到 dsh 后端。请在托盘「设置后端文件夹」中指定 dsh CLI 所在目录。')
     throw new Error(lastError)
   }
 
-  currentStatus = 'starting'
-  lastError = null
-  child = spawn(resolved.command, [...resolved.args, 'web'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-    env: { ...process.env, ...(resolved.env || {}) },
-  })
+  setStatus('starting')
+
+  // Windows: .cmd/.bat cannot be spawned directly — EINVAL. Route them
+  // through the shell so `dsh.cmd web` behaves like a normal terminal.
+  const isCmd = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolved.command)
+  const command = isCmd ? `"${resolved.command}"` : resolved.command
+
+  let spawned = null
+  try {
+    spawned = spawn(command, [...resolved.args, 'web'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: isCmd,
+      env: { ...process.env, ...(resolved.env || {}) },
+    })
+  } catch (err) {
+    // Synchronous spawn failures (e.g. EINVAL on Windows) must leave the
+    // state machine in 'error' — otherwise the tray is stuck on 'starting'.
+    setStatus('error', `后端启动失败：${err.message}`)
+    throw new Error(lastError)
+  }
+  child = spawned
 
   child.on('error', (err) => {
-    lastError = err.message
-    currentStatus = 'error'
+    setStatus('error', err.message)
     if (startResolver) {
-      startResolver.reject(new Error(lastError))
+      const r = startResolver
       startResolver = null
+      r.reject(new Error(lastError))
     }
   })
 
   child.on('exit', (code) => {
     child = null
     if (currentStatus === 'starting' && startResolver) {
-      lastError = `dsh 后端异常退出 (code ${code})`
-      currentStatus = 'error'
-      startResolver.reject(new Error(lastError))
+      const r = startResolver
       startResolver = null
+      setStatus('error', `dsh 后端异常退出 (code ${code})`)
+      r.reject(new Error(lastError))
     } else if (currentStatus !== 'stopped') {
-      currentStatus = 'stopped'
+      setStatus('stopped')
     }
   })
 
-  // Wait for the ready line with a timeout.
+  // Wait for readiness: ready line on stdout/stderr, or the port answering.
   return await new Promise((resolve, reject) => {
     startResolver = { resolve, reject }
     let stdout = ''
     let stderr = ''
-    const timer = setTimeout(() => {
-      child?.kill()
+    const timer = setTimeout(async () => {
+      if (!startResolver) return
+      const r = startResolver
       startResolver = null
-      lastError = 'dsh 后端启动超时（45s）'
-      currentStatus = 'error'
-      reject(new Error(lastError))
+      // Timeout does not mean failure — the port may already be up while
+      // the CLI never printed a parseable URL. Probe before giving up.
+      const url = `http://127.0.0.1:${DEFAULT_PORT}`
+      if (await probe(url, 1500)) {
+        setStatus('running')
+        r.resolve(url)
+        return
+      }
+      child?.kill()
+      setStatus('error', 'dsh 后端启动超时（45s）')
+      r.reject(new Error(lastError))
     }, 45000)
 
     const onData = () => {
@@ -124,9 +170,11 @@ export async function start({ backendPath } = {}) {
       const m = text.match(/http:\/\/127\.0\.0\.1:(\d+)/)
       if (m && startResolver) {
         clearTimeout(timer)
-        currentStatus = 'running'
-        startResolver.resolve(`http://127.0.0.1:${m[1]}`)
+        const r = startResolver
         startResolver = null
+        const url = `http://127.0.0.1:${m[1]}`
+        setStatus('running')
+        r.resolve(url)
       }
     }
     child.stdout.on('data', (d) => {
@@ -140,19 +188,110 @@ export async function start({ backendPath } = {}) {
   })
 }
 
-/** Stop the local backend (spawned by us). External instances are left alone. */
+/**
+ * Stop the backend.
+ *
+ * - If the backend was spawned by us, kill our child (and force-free the
+ *   port — a shell-spawned .cmd can leave orphan node processes behind).
+ * - Otherwise (an external instance, e.g. the user ran `dsh web` themselves)
+ *   find the process listening on the port and terminate it, but only when
+ *   it looks like a node-based backend, never an unrelated program.
+ */
 export async function stop() {
-  if (!child) {
-    currentStatus = 'stopped'
+  if (child) {
+    const proc = child
+    child = null
+    setStatus('stopped')
+    await new Promise((resolve) => {
+      proc.once('exit', resolve)
+      proc.kill()
+      setTimeout(resolve, 3000)
+    })
+    await ensurePortFree(DEFAULT_PORT)
     return
   }
-  const proc = child
-  child = null
-  currentStatus = 'stopped'
-  await new Promise((resolve) => {
-    proc.once('exit', resolve)
-    proc.kill()
-    setTimeout(resolve, 3000)
+
+  // External instance: locate it by port and kill (node-only guard).
+  const pid = await findProcessOnPort(DEFAULT_PORT)
+  if (pid) {
+    const name = await processName(pid)
+    if (name && /node/i.test(name)) {
+      await killProcess(pid)
+      await ensurePortFree(DEFAULT_PORT)
+    }
+  }
+  setStatus('stopped')
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Wait until nothing answers on the port (or give up after ~6s). */
+async function ensurePortFree(port, tries = 12) {
+  const url = `http://127.0.0.1:${port}`
+  for (let i = 0; i < tries; i++) {
+    if (!(await probe(url, 500))) return true
+    await sleep(500)
+  }
+  return !(await probe(url, 500))
+}
+
+/** Find the PID listening on a TCP port (netstat on Windows, lsof elsewhere). */
+function findProcessOnPort(port) {
+  return new Promise((resolve) => {
+    const isWin = process.platform === 'win32'
+    const cmd = isWin ? 'netstat' : 'lsof'
+    const args = isWin ? ['-ano'] : ['-ti', `:${port}`]
+    const p = spawn(cmd, args, { windowsHide: true })
+    let out = ''
+    p.stdout.on('data', (d) => {
+      out += d.toString()
+    })
+    p.on('error', () => resolve(null))
+    p.on('exit', () => {
+      if (isWin) {
+        const re = new RegExp(`\\bTCP\\s+[^\\s]*:${port}\\s+[^\\s]*\\s+LISTENING\\s+(\\d+)`)
+        const m = out.match(re)
+        resolve(m ? m[1] : null)
+      } else {
+        const pid = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean)
+        resolve(pid || null)
+      }
+    })
+  })
+}
+
+/** Process image name for a PID (Windows tasklist; null elsewhere). */
+function processName(pid) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve(null)
+      return
+    }
+    const p = spawn('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+      windowsHide: true,
+    })
+    let out = ''
+    p.stdout.on('data', (d) => {
+      out += d.toString()
+    })
+    p.on('error', () => resolve(null))
+    p.on('exit', () => {
+      // CSV row: "image name","pid","session name",...
+      const m = out.match(/"([^"]+)","(\d+)"/)
+      resolve(m ? m[1] : null)
+    })
+  })
+}
+
+/** Force-kill a process (taskkill on Windows, kill -9 elsewhere). */
+function killProcess(pid) {
+  return new Promise((resolve) => {
+    const isWin = process.platform === 'win32'
+    const cmd = isWin ? 'taskkill' : 'kill'
+    const args = isWin ? ['/PID', String(pid), '/F', '/T'] : ['-9', String(pid)]
+    const p = spawn(cmd, args, { windowsHide: true, stdio: 'ignore' })
+    p.on('error', () => resolve(false))
+    p.on('exit', () => resolve(true))
   })
 }
 
@@ -218,8 +357,12 @@ async function resolveDshCommand(backendPath) {
     if (found) return { command: found, args: [] }
   }
 
-  // 2) `dsh` on PATH
-  if (await commandExists('dsh')) return { command: 'dsh', args: [] }
+  // 2) `dsh` on PATH — resolve to the real file so .cmd/.bat gets the
+  //    shell treatment (a bare `spawn('dsh')` would ENOENT on Windows).
+  const onPath = await commandPath('dsh')
+  if (onPath) {
+    return { command: /\.(cmd|bat)$/i.test(onPath) ? onPath : 'dsh', args: [] }
+  }
 
   // 3) Common locations (dev convenience).
   if (process.platform === 'win32') {
@@ -264,15 +407,6 @@ function commandPath(cmd) {
       const line = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean)
       resolve(line || null)
     })
-  })
-}
-
-function commandExists(cmd) {
-  return new Promise((resolve) => {
-    const finder = process.platform === 'win32' ? 'where' : 'which'
-    const c = spawn(finder, [cmd], { stdio: 'ignore', windowsHide: true })
-    c.on('error', () => resolve(false))
-    c.on('exit', (code) => resolve(code === 0))
   })
 }
 
