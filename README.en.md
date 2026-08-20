@@ -31,22 +31,22 @@ Key differences from other desktop clients in the ecosystem:
 
 ## Install
 
-> **Status**: plugin-market install (Option 2) is under construction, expected live early tomorrow. **Only Option 1 (the installer) is currently available.**
-
-**Option 1: download the installer from Releases (recommended for end users — the only full desktop-app install)**
+**Option 1: download the installer from Releases (for a standalone desktop app)**
 
 - Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
 - macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
 
 The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
 
-**Option 2: register as a DSH plugin (developers/power users only) — ⚠️ this command does NOT install any desktop app**
+**Option 2: install as a DSH plugin (DSH ecosystem users)**
 
 ```sh
 dsh plugin --profile web add dsh-clean-desktop-shell
 ```
 
-> **Important**: Option 2 only "registers" the shell into your DSH profile. **No desktop app appears on your machine** — no installer, no desktop icon, no tray. It is meant for developers who want the shell mounted in the DSH ecosystem (reuses your web profile config, future settings integration). **For a double-clickable desktop app, use Option 1** (or run the source with `npm run dev`).
+Restart `dsh web` and the desktop shell window **opens automatically** (the first run prepares the Electron runtime over the network, ~1-2 minutes).
+
+> Option 2 gives you a shell that launches alongside DSH: the window is spawned by the plugin when `dsh web` starts, with **no standalone installer / desktop icon**. For a double-clickable app with a desktop shortcut and auto-update, use Option 1. The core window experience is identical either way.
 
 > The shell needs a reachable `dsh web` service (local or configured remote address). See Usage.
 
@@ -144,6 +144,17 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.4
+- Branch 2 (plugin-market distribution) is now live: `dsh plugin add` →
+  restart `dsh web` → the desktop shell opens automatically. The Electron
+  runtime is self-provisioned by the plugin (local reuse / network-aware
+  source selection).
+- Desktop shortcut: first-run prompt + one-click "create desktop shortcut"
+  in the tray (both the installer and plugin forms).
+- Icons: Windows taskbar and macOS Dock show the whale icon in bare-runtime
+  (plugin) mode.
+- Auto-launch (login item) removed — both forms are now fully manual.
 
 ### 0.1.2
 - Windows auto-update: tray "check for updates" now downloads in the
