@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Needed so electron-builder can create/update the GitHub Release for the tag.
+permissions:
+  contents: write
+
 jobs:
   win:
     name: Windows (NSIS)
