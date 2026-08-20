@@ -1,9 +1,21 @@
 {
   "name": "dsh-clean-desktop-shell",
   "version": "0.1.0",
-  "description": "Clean frosted-glass desktop shell for DeepSeek Harness (DSH) — Windows/macOS. Reuses your existing web profile, Mica/vibrancy window material. DSH 插件形态的干净毛玻璃桌面壳，复用现有 web profile。",
+  "description": "Clean desktop shell for DeepSeek Harness (DSH) as a DSH plugin — reuses your web profile, tray/single-instance/auto-launch, zero visual changes. DSH 插件形态的纯净桌面壳：复用现有 web profile，托盘管理后端，零视觉改造。",
   "type": "module",
   "main": "lib/index.js",
+  "files": [
+    "lib/",
+    "electron/",
+    "src/",
+    "scripts/",
+    "build/icon.png",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "version.txt"
+  ],
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
