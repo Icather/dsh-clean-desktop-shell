@@ -32,3 +32,6 @@ Thumbs.db
 .env
 .env.local
 .npmrc
+
+# Local preview screenshots
+build/*-preview.png
