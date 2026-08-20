@@ -27,14 +27,15 @@ const svgLight = `<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"
 </svg>`
 
 async function main() {
-  // 256px app icon (black whale — matches DSH dark theme).
+  // 512px app icon (black whale — matches DSH dark theme). macOS requires
+  // >=512px for the app icon; Windows ICO also uses the 512 frame.
   await sharp(SVG, { density: 300 })
-    .resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toFile(join(buildDir, 'icon.png'))
 
   // Multi-size ICO from the same source.
-  const sizes = [16, 24, 32, 48, 64, 128, 256]
+  const sizes = [16, 24, 32, 48, 64, 128, 256, 512]
   const pngs = []
   for (const s of sizes) {
     const f = join(buildDir, `icon-${s}.png`)
@@ -57,8 +58,8 @@ async function main() {
   }
 
   console.log('icons generated:')
-  console.log('  build/icon.png (256)')
-  console.log('  build/icon.ico (16..256)')
+  console.log('  build/icon.png (512)')
+  console.log('  build/icon.ico (16..512)')
   console.log('  electron/assets/tray-16.png, tray-32.png (white whale)')
 }
 

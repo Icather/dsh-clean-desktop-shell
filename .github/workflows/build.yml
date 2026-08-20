@@ -20,6 +20,7 @@ jobs:
       - run: npx electron-builder --win nsis --x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-clean-desktop-shell-win
@@ -39,22 +40,9 @@ jobs:
       - run: npx electron-builder --mac dmg --x64 --arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-clean-desktop-shell-mac
           path: dist/*.dmg
           if-no-files-found: error
-
-  release:
-    name: Publish to GitHub Release
-    needs: [win, mac]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
