@@ -7,10 +7,13 @@
  */
 import { BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 export const WINDOWS_TITLEBAR_HEIGHT = 32
 
 const PRELOAD_PATH = fileURLToPath(new URL('./preload.js', import.meta.url))
+// Black-whale app icon (matches the DSH web favicon).
+const ICON_PATH = fileURLToPath(new URL('../build/icon.png', import.meta.url))
 
 export function createMainWindow({ target }) {
   const platform = process.platform
@@ -25,6 +28,7 @@ export function createMainWindow({ target }) {
     show: false,
     title: 'DeepSeek Harness',
     backgroundColor: '#10131A',
+    icon: isWin ? ICON_PATH : undefined,
     webPreferences: {
       preload: PRELOAD_PATH,
       contextIsolation: true,

@@ -18,6 +18,12 @@ import { ensureService } from './service.js'
 
 const isMac = process.platform === 'darwin'
 
+// Windows: pin the AppUserModelId so the taskbar shows our whale icon
+// instead of the generic Electron icon.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.icather.dsh-clean-desktop-shell')
+}
+
 /** Single instance: a second launch just focuses the existing window. */
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {

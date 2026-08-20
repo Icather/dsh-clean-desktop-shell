@@ -54,6 +54,7 @@
       "electron/**/*",
       "lib/**/*",
       "src/**/*",
+      "build/icon.png",
       "package.json",
       "cordis.patch.yml"
     ],
