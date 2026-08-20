@@ -28,14 +28,15 @@ const svgLight = `<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50"
 
 async function main() {
   // 512px app icon (black whale — matches DSH dark theme). macOS requires
-  // >=512px for the app icon; Windows ICO also uses the 512 frame.
+  // >=512px for the app icon.
   await sharp(SVG, { density: 300 })
     .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toFile(join(buildDir, 'icon.png'))
 
-  // Multi-size ICO from the same source.
-  const sizes = [16, 24, 32, 48, 64, 128, 256, 512]
+  // Multi-size ICO — capped at 256: NSIS's installer icon loader rejects
+  // 512px frames ("invalid icon file size"), and Windows doesn't need them.
+  const sizes = [16, 24, 32, 48, 64, 128, 256]
   const pngs = []
   for (const s of sizes) {
     const f = join(buildDir, `icon-${s}.png`)
@@ -59,7 +60,7 @@ async function main() {
 
   console.log('icons generated:')
   console.log('  build/icon.png (512)')
-  console.log('  build/icon.ico (16..512)')
+  console.log('  build/icon.ico (16..256, NSIS-safe)')
   console.log('  electron/assets/tray-16.png, tray-32.png (white whale)')
 }
 
