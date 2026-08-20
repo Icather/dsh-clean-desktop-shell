@@ -4,7 +4,7 @@
 
 **A clean desktop shell for DeepSeek Harness, shipped as a DSH plugin**
 
-Does exactly one thing: wraps your already-configured DSH Web in a clean native desktop window — system tray, single instance, auto-launch, just like a normal app. No frosted glass, no fancy materials. **Clean.**
+Does exactly one thing: wraps your already-configured DSH Web in a clean native desktop window — system tray, single instance, just like a normal app. No frosted glass, no fancy materials. **Clean.**
 
 [English](README.en.md) · [中文](README.md)
 
@@ -18,7 +18,7 @@ Does exactly one thing: wraps your already-configured DSH Web in a clean native 
 
 ## What is this
 
-`dsh-clean-desktop-shell` is a **DSH-plugin-shaped clean desktop shell**: it wraps an already-running DSH Web (default `http://127.0.0.1:3080`) in a native desktop window — system tray, single instance, auto-launch, so it behaves like any normal desktop app. **No visual changes at all**: no frosted glass, no skinning — purely a window shell.
+`dsh-clean-desktop-shell` is a **DSH-plugin-shaped clean desktop shell**: it wraps an already-running DSH Web (default `http://127.0.0.1:3080`) in a native desktop window — system tray, single instance, so it behaves like any normal desktop app. **No visual changes at all**: no frosted glass, no skinning — purely a window shell.
 
 Key differences from other desktop clients in the ecosystem:
 
@@ -31,12 +31,14 @@ Key differences from other desktop clients in the ecosystem:
 
 ## Install
 
+> **Status**: plugin-market install (Option 2) is under construction, expected live early tomorrow. **Only Option 1 (the installer) is currently available.**
+
 **Option 1: download the installer from Releases (recommended for end users — the only full desktop-app install)**
 
 - Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
 - macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
 
-The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray, auto-launch). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
+The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
 
 **Option 2: register as a DSH plugin (developers/power users only) — ⚠️ this command does NOT install any desktop app**
 
@@ -93,7 +95,7 @@ Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.e
               │   dsh-clean-desktop-shell      │
               │   Electron shell (client)      │
               │   tray · single-instance ·     │
-              │   auto-launch                  │
+              │                              │
               └────────────────────────────────┘
 ```
 
@@ -120,7 +122,7 @@ Unblock-File -Path "$env:USERPROFILE\Downloads\DSH-Clean-Desktop-Shell-Setup-*.e
 - Start / restart / stop the backend (with progress dialogs; stopping really
   shuts down the service on 3080, including externally started instances)
 - Auto-detect backend · set the backend install folder (auto-detect default)
-- Reload window · check for updates · repo homepage · auto-launch
+- Reload window · check for updates · repo homepage
 
 **Window reliability (Edge-style instant refresh):**
 
@@ -167,7 +169,7 @@ npm run pack    # package NSIS (Win) / DMG (mac)
   Silicon DMG).
 
 ### 0.1.0
-- Initial release: Electron shell skeleton, system tray / single instance / auto-launch, DSH plugin mounting.
+- Initial release: Electron shell skeleton, system tray / single instance, DSH plugin mounting.
 
 ## Contributing
 
