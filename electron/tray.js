@@ -91,7 +91,7 @@ export function refreshTrayMenu() {
         const detected = await detectInstallFolder()
         const defaultFolder = detected || config.backendPath || undefined
         const result = await dialog.showOpenDialog({
-          title: '选择dsh后端安装文件夹',
+          title: '选择dsh后端安装文件夹，默认安装用自动探测',
           buttonLabel: '选择此文件夹',
           message: '默认安装用自动探测。可手动指定 dsh 后端安装文件夹（包含 dsh 可执行文件）。',
           properties: ['openDirectory'],
