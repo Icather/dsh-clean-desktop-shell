@@ -5,7 +5,6 @@ node_modules/
 dist/
 out/
 release/
-lib/
 *.tsbuildinfo
 
 # Generated icon intermediates (keep the committed sources: build/favicon-source.svg)
