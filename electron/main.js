@@ -4,17 +4,15 @@
  * Shell/core decoupling:
  *  - default target: http://127.0.0.1:3080 (existing web profile, zero migration)
  *  - configurable remote target (settings file)
- *  - local service auto-start when the target is unreachable
+ *  - local backend auto-start on launch; full manual control from the tray
  *
- * Platform materials:
- *  - win32: Mica (Windows 11)
- *  - darwin: vibrancy sidebar
+ * The main window is a pure shell — all backend controls live in the tray.
  */
 import { app, BrowserWindow } from 'electron'
 import { createMainWindow } from './window.js'
 import { createTray } from './tray.js'
 import { loadConfig, saveConfig } from './config.js'
-import { ensureService } from './service.js'
+import { detect, start } from './service.js'
 
 const isMac = process.platform === 'darwin'
 
@@ -41,19 +39,9 @@ if (!gotLock) {
 
   async function createWindow() {
     const config = loadConfig()
-
-    // Local service auto-start: only when the target is the default local URL
-    // and nothing is listening there yet.
     const target = config.targetUrl || 'http://127.0.0.1:3080'
-    const isLocalDefault = target === 'http://127.0.0.1:3080'
-    if (isLocalDefault && config.autoStartService !== false) {
-      await ensureService({ port: 3080 })
-    }
 
-    mainWindow = createMainWindow({
-      target,
-      mode: config.windowMode || 'advanced',
-    })
+    mainWindow = createMainWindow({ target })
     mainWindow.on('closed', () => {
       mainWindow = null
     })
@@ -66,6 +54,24 @@ if (!gotLock) {
     })
 
     return mainWindow
+  }
+
+  /** Launch-time backend bootstrap: detect, and auto-start when local. */
+  async function bootstrapBackend() {
+    const config = loadConfig()
+    const target = config.targetUrl || 'http://127.0.0.1:3080'
+    const isLocalDefault = target === 'http://127.0.0.1:3080'
+    if (!isLocalDefault || config.autoStartService === false) return
+
+    const url = await detect()
+    if (!url) {
+      // Not running — try to start it, but never block window opening.
+      try {
+        await start({ backendPath: config.backendPath })
+      } catch {
+        // Backend unavailable; window still opens, tray shows the error.
+      }
+    }
   }
 
   app.whenReady().then(async () => {
@@ -86,6 +92,9 @@ if (!gotLock) {
         app.quit()
       },
     })
+
+    // Backend bootstrap in background (never delays the window).
+    bootstrapBackend().catch(() => {})
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

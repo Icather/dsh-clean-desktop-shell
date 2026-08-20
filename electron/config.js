@@ -19,6 +19,7 @@ const DEFAULTS = {
   closeToTray: true,
   windowMode: 'advanced',
   autoLaunch: false,
+  backendPath: null,
 }
 
 let cached = null

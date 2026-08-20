@@ -1,24 +1,41 @@
 /**
- * Local dsh web service supervision.
+ * Local dsh web backend supervision.
  *
- * Checks whether the target port already serves a dsh web instance; if not,
- * spawns `dsh web` and waits for the ready line. The service is decoupled
- * from the shell: when a remote target URL is configured, no local process
- * is ever started.
+ * The shell owns the lifecycle of the dsh backend from the tray:
+ *  - detect(): probe configured paths + default port
+ *  - start() / stop() / restart()
+ *  - status: 'running' | 'stopped' | 'starting' | 'error'
+ *
+ * Shell/core decoupling: when a remote target URL is configured, no local
+ * backend is ever touched — this module only manages the local dsh CLI.
  */
 import { spawn } from 'node:child_process'
 import { access } from 'node:fs'
 
 const DEFAULT_PORT = 3080
 
-/** Simple HTTP probe — returns true when something responds on the port. */
+let child = null
+let currentStatus = 'stopped'
+let lastError = null
+let startResolver = null
+
+export function getStatus() {
+  return {
+    status: currentStatus,
+    port: DEFAULT_PORT,
+    url: `http://127.0.0.1:${DEFAULT_PORT}`,
+    error: lastError,
+    pid: child?.pid ?? null,
+  }
+}
+
+/** Simple HTTP probe — true when something responds on the port. */
 export async function probe(url, timeoutMs = 1500) {
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     const res = await fetch(url, { signal: controller.signal, redirect: 'follow' })
     clearTimeout(timer)
-    // A 200/3xx from dsh web means the service is up.
     return res.status < 500
   } catch {
     return false
@@ -26,44 +43,88 @@ export async function probe(url, timeoutMs = 1500) {
 }
 
 /**
- * Ensure a dsh web instance is reachable on the given port.
- * Returns the resolved URL, or throws when the service cannot be started.
+ * Detect a reachable local dsh web service.
+ * Returns the URL when something already listens on the port,
+ * or null when the backend is down.
  */
-export async function ensureService({ port = DEFAULT_PORT, command = 'dsh' } = {}) {
-  const url = `http://127.0.0.1:${port}`
+export async function detect() {
+  const url = `http://127.0.0.1:${DEFAULT_PORT}`
   const up = await probe(url)
-  if (up) return url
+  if (up) {
+    currentStatus = 'running'
+    return url
+  }
+  currentStatus = 'stopped'
+  return null
+}
 
-  // Try to locate the dsh CLI. Prefer the global command; fall back to a
-  // DSH installation found via common locations on Windows.
-  const resolved = await resolveDshCommand()
+/**
+ * Start the local dsh backend. Resolves once the service answers
+ * (or a spawned CLI prints its ready line). Throws on failure.
+ */
+export async function start({ backendPath } = {}) {
+  // Already up?
+  const up = await detect()
+  if (up) return up
+
+  // Backend path: explicit config → common locations → PATH.
+  const resolved = await resolveDshCommand(backendPath)
   if (!resolved) {
-    throw new Error(
-      `No dsh web service on ${url} and no dsh CLI found to start it. ` +
-        `Start 'dsh web' manually, or set targetUrl in the shell config.`,
-    )
+    lastError = '未找到 dsh 后端。请在托盘「设置后端文件夹」中指定 dsh CLI 所在目录。'
+    currentStatus = 'error'
+    throw new Error(lastError)
   }
 
-  const child = spawn(resolved.command, [...resolved.args, 'web'], {
+  currentStatus = 'starting'
+  lastError = null
+  child = spawn(resolved.command, [...resolved.args, 'web'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     env: { ...process.env, ...(resolved.env || {}) },
   })
 
-  // Wait for the ready line ("dsh web: http://127.0.0.1:<port>") with a timeout.
-  const ready = await new Promise((resolve) => {
+  child.on('error', (err) => {
+    lastError = err.message
+    currentStatus = 'error'
+    if (startResolver) {
+      startResolver.reject(new Error(lastError))
+      startResolver = null
+    }
+  })
+
+  child.on('exit', (code) => {
+    child = null
+    if (currentStatus === 'starting' && startResolver) {
+      lastError = `dsh 后端异常退出 (code ${code})`
+      currentStatus = 'error'
+      startResolver.reject(new Error(lastError))
+      startResolver = null
+    } else if (currentStatus !== 'stopped') {
+      currentStatus = 'stopped'
+    }
+  })
+
+  // Wait for the ready line with a timeout.
+  return await new Promise((resolve, reject) => {
+    startResolver = { resolve, reject }
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
-      child.kill()
-      resolve(null)
+      child?.kill()
+      startResolver = null
+      lastError = 'dsh 后端启动超时（45s）'
+      currentStatus = 'error'
+      reject(new Error(lastError))
     }, 45000)
+
     const onData = () => {
       const text = stdout + stderr
       const m = text.match(/http:\/\/127\.0\.0\.1:(\d+)/)
-      if (m) {
+      if (m && startResolver) {
         clearTimeout(timer)
-        resolve(`http://127.0.0.1:${m[1]}`)
+        currentStatus = 'running'
+        startResolver.resolve(`http://127.0.0.1:${m[1]}`)
+        startResolver = null
       }
     }
     child.stdout.on('data', (d) => {
@@ -74,51 +135,72 @@ export async function ensureService({ port = DEFAULT_PORT, command = 'dsh' } = {
       stderr += d.toString()
       onData()
     })
-    child.on('error', () => {
-      clearTimeout(timer)
-      resolve(null)
-    })
-    child.on('exit', () => {
-      clearTimeout(timer)
-      resolve(null)
-    })
   })
+}
 
-  if (!ready) {
-    throw new Error(`dsh web did not become ready within 45s on ${url}.`)
+/** Stop the local backend (spawned by us). External instances are left alone. */
+export async function stop() {
+  if (!child) {
+    currentStatus = 'stopped'
+    return
   }
-  return ready
+  const proc = child
+  child = null
+  currentStatus = 'stopped'
+  await new Promise((resolve) => {
+    proc.once('exit', resolve)
+    proc.kill()
+    setTimeout(resolve, 3000)
+  })
+}
+
+/** Restart the local backend. */
+export async function restart(options) {
+  await stop()
+  return await start(options)
 }
 
 /** Locate a usable dsh CLI. */
-async function resolveDshCommand() {
-  // 1) `dsh` on PATH
-  const onPath = await commandExists('dsh')
-  if (onPath) return { command: 'dsh', args: [] }
+async function resolveDshCommand(backendPath) {
+  // 1) Explicit backend folder from config — look for dsh(.cmd/.exe) inside.
+  if (backendPath) {
+    const candidates = [
+      joinCmd(backendPath, 'dsh.cmd'),
+      joinCmd(backendPath, 'dsh'),
+      joinCmd(backendPath, 'bin', 'dsh.cmd'),
+      joinCmd(backendPath, 'node_modules', '.bin', 'dsh.cmd'),
+    ]
+    for (const c of candidates) {
+      if (await exists(c)) return { command: c, args: [] }
+    }
+  }
 
-  // 2) Common Windows install locations (dev convenience).
+  // 2) `dsh` on PATH
+  if (await commandExists('dsh')) return { command: 'dsh', args: [] }
+
+  // 3) Common locations (dev convenience).
   if (process.platform === 'win32') {
     const candidates = [
-      // DSH prod checkout layout used on this machine
       'D:\\deepseek-harness\\prod\\node_modules\\.bin\\dsh.cmd',
-      // user-level DSH install
       `${process.env.USERPROFILE}\\AppData\\Roaming\\npm\\dsh.cmd`,
     ]
     for (const c of candidates) {
-      if (await exists(c)) {
-        return { command: c, args: [] }
-      }
+      if (await exists(c)) return { command: c, args: [] }
     }
   }
   return null
 }
 
+function joinCmd(...parts) {
+  return parts.join(process.platform === 'win32' ? '\\' : '/')
+}
+
 function commandExists(cmd) {
   return new Promise((resolve) => {
     const finder = process.platform === 'win32' ? 'where' : 'which'
-    const child = spawn(finder, [cmd], { stdio: 'ignore', windowsHide: true })
-    child.on('error', () => resolve(false))
-    child.on('exit', (code) => resolve(code === 0))
+    const c = spawn(finder, [cmd], { stdio: 'ignore', windowsHide: true })
+    c.on('error', () => resolve(false))
+    c.on('exit', (code) => resolve(code === 0))
   })
 }
 
