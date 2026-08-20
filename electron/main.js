@@ -24,6 +24,11 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.icather.dsh-clean-desktop-shell')
 }
 
+// Uniform userData across both distribution branches (installer vs
+// plugin-market), so config (target URL, backend path, ...) is shared
+// no matter how the shell was launched.
+app.setName('DSH Clean Desktop Shell')
+
 /** Single instance: a second launch just focuses the existing window. */
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -107,11 +112,6 @@ if (!gotLock) {
         if (!mainWindow) return createWindow()
         mainWindow.show()
         mainWindow.focus()
-      },
-      onToggleAutoStart: (enabled) => {
-        const config = loadConfig()
-        saveConfig({ ...config, autoLaunch: enabled })
-        app.setLoginItemSettings({ openAtLogin: enabled })
       },
       onReload: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {

@@ -6,7 +6,6 @@
  *                     DSH address to run the shell as a pure window.
  *  - closeToTray:      default true.
  *  - windowMode:       'advanced' (mica/vibrancy) | 'compatibility'.
- *  - autoLaunch:       open at login.
  */
 import { app } from 'electron'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -16,7 +15,6 @@ const DEFAULTS = {
   targetUrl: 'http://127.0.0.1:3080',
   closeToTray: true,
   windowMode: 'advanced',
-  autoLaunch: false,
   backendPath: null,
   // True once the first-run "create a desktop shortcut?" prompt was shown
   // (so it never nags again). The tray item stays available regardless.

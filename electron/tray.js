@@ -31,10 +31,10 @@ const trayIconPath = join(
 let trayInstance = null
 let handlers = null
 
-export function createTray({ onShow, onToggleAutoStart, onReload, onQuit }) {
+export function createTray({ onShow, onReload, onQuit }) {
   const icon = nativeImage.createFromPath(trayIconPath)
 
-  handlers = { onShow, onToggleAutoStart, onReload, onQuit }
+  handlers = { onShow, onReload, onQuit }
 
   trayInstance = new Tray(icon)
   trayInstance.setToolTip('DSH Clean Desktop Shell')
@@ -51,7 +51,7 @@ export function createTray({ onShow, onToggleAutoStart, onReload, onQuit }) {
 /** Rebuild the context menu (call after backend state changes). */
 export function refreshTrayMenu() {
   if (!trayInstance || !handlers) return
-  const { onShow, onToggleAutoStart, onReload, onQuit } = handlers
+  const { onShow, onReload, onQuit } = handlers
   const st = getStatus()
   const label = statusLabel(st)
 
@@ -172,13 +172,6 @@ export function refreshTrayMenu() {
     {
       label: '仓库主页',
       click: () => openRepo(),
-    },
-    { type: 'separator' },
-    {
-      label: '开机自启',
-      type: 'checkbox',
-      checked: !!loadConfig().autoLaunch,
-      click: (item) => onToggleAutoStart(item.checked),
     },
     { type: 'separator' },
     { label: '退出', click: onQuit },

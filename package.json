@@ -108,5 +108,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "desktopShell": {
+    "electronVersion": "33.4.11"
   }
 }
