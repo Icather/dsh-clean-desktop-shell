@@ -11,7 +11,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6?logo=windows&logoColor=white)](https://github.com/Icather/dsh-clean-desktop-shell)
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
-[![DSH](https://img.shields.io/badge/DeepSeek_Harness-rc.7-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 
 </div>
@@ -27,7 +27,25 @@
 | **形态** | 独立 Electron 应用，自带独立 profile | **DSH 插件**，挂载进现有 profile |
 | **Profile** | 新建 desktop profile，插件/配置要重装 | **复用现有 web profile**，零迁移 |
 | **视觉改造** | 自绘标题栏 / 毛玻璃等 | **零改造**，纯净窗口壳 |
-| **跟随上游** | 固定版本 | **跟随 rc.7** |
+| **跟随上游** | 固定版本 | **跟随 0.1.1-rc.2** |
+
+## 核心亮点
+
+**① 像双击桌面应用一样，一键启动 DSH**
+
+不用开终端、不用记命令。**双击桌面快捷方式，DSH 窗口立刻弹出**，和启动任何一个普通软件一样自然：
+
+- 安装包自动创建桌面快捷方式；插件形态首次运行询问 + 托盘「创建桌面快捷方式」一键补建
+- 双击即出窗——窗口不等后端、不做启动等待
+- 单实例：重复双击只聚焦已有窗口，绝不重复开壳
+
+**② 后端活性实时监测 · 快捷手动自主启停**
+
+托盘**实时显示后端状态**（运行中 / 启动中 / 未运行 / 错误），一键启停：
+
+- **活性监测**：窗口持续探测后端；后端一旦被杀、崩溃或手动关闭，窗口立刻切到离线页，绝不停在旧页面假装还活着
+- **自动重连**：后端恢复的一刻，窗口自动加载回真实页面，无需手动刷新
+- **快捷启停**：托盘右键一键启动 / 重启 / 关闭后端（带进度弹窗）；「关闭后端」真正停掉 3080 端口上的服务，含外部启动的实例
 
 ## 使用
 
@@ -149,6 +167,14 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 ```
 
 ## 更新历史
+
+### 0.1.6
+- 修复插件形态下「检查更新」误报 Electron 运行时版本号的问题。
+
+### 0.1.5
+- 插件 host 侧重构为聚焦模块。
+- 补全 package.json 元数据（repository / homepage / bugs），清理遗留的开机自启字段。
+- README 调整：使用前置、架构反映两种形态、平台矩阵置顶。
 
 ### 0.1.4
 - 分支二（插件市场分发）正式可用：`dsh plugin add` 装插件 → 重启 `dsh web` → 桌面壳自动弹出；Electron 运行时由插件自管理（本地复用 / 按网络环境自动选源下载）。

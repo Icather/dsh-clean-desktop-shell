@@ -11,7 +11,7 @@ Does exactly one thing: wraps your already-configured DSH Web in a clean native 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6?logo=windows&logoColor=white)](https://github.com/Icather/dsh-clean-desktop-shell)
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
-[![DSH](https://img.shields.io/badge/DeepSeek_Harness-rc.7-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 
 </div>
@@ -27,7 +27,25 @@ Key differences from other desktop clients in the ecosystem:
 | **Form** | Standalone Electron app with its own profile | **DSH plugin** mounted into your existing profile |
 | **Profile** | New `desktop` profile, plugins/config must be reinstalled | **Reuses your web profile**, zero migration |
 | **Visual changes** | Custom title bar / frosted glass etc. | **None** — pure window shell |
-| **Upstream** | Pinned version | **Tracks rc.7** |
+| **Upstream** | Pinned version | **Tracks 0.1.1-rc.2** |
+
+## Highlights
+
+**① One-click launch — like double-clicking a normal desktop app**
+
+No terminal, no commands. **Double-click the desktop shortcut and the DSH window opens instantly**, just like launching any normal app:
+
+- The installer creates the desktop shortcut automatically; the plugin form asks on first run, plus a one-click "create desktop shortcut" in the tray
+- Shows immediately on double-click — never waits for the backend
+- Single instance: a second double-click just focuses the existing window
+
+**② Live backend monitoring · quick manual start/stop**
+
+The tray **shows the backend state in real time** (running / starting / stopped / error) with one-click controls:
+
+- **Live monitoring**: the window keeps probing the backend; the moment it is killed, crashes or is stopped, the window flips to the offline screen — a stale page never fakes "still alive"
+- **Auto-reconnect**: the instant the backend recovers, the window reloads the real page by itself
+- **Quick start/stop**: one-click start / restart / stop from the tray (with progress dialogs); "stop backend" really shuts the service down on 3080, including externally started instances
 
 ## Usage
 
@@ -148,6 +166,14 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.6
+- Fixed "check for updates" reporting the Electron runtime version in plugin mode.
+
+### 0.1.5
+- Refactored the plugin host half into focused modules.
+- Completed package.json metadata (repository / homepage / bugs); dropped a stale auto-launch field.
+- README: usage before install, architecture reflects the two forms, platform matrix top-level.
 
 ### 0.1.4
 - Branch 2 (plugin-market distribution) is now live: `dsh plugin add` →
