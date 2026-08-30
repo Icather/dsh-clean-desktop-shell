@@ -25,8 +25,12 @@ import { shortcutSupported, createDesktopShortcut } from './shortcut.js'
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
   'assets',
-  process.platform === 'win32' ? 'tray-16.png' : 'tray-32.png',
+  process.platform === 'win32' ? 'tray-16.png' : 'trayTemplate.png',
 )
+// macOS: the filename must end in "Template" (e.g. trayTemplate.png) and
+// Electron will automatically pick trayTemplate@2x.png on Retina.
+// The image itself must be a black silhouette + alpha channel so it
+// inverts correctly in both light and dark menu bars.
 
 let trayInstance = null
 let handlers = null
@@ -61,9 +65,11 @@ export function refreshTrayMenu() {
       label: '刷新窗口',
       click: onReload,
     },
+    // Windows-only: desktop .lnk shortcut. Hidden on other platforms instead of
+    // disabled so the menu stays relevant to the OS it is running on.
     {
       label: '创建桌面快捷方式',
-      enabled: shortcutSupported(),
+      visible: shortcutSupported(),
       click: async () => {
         const ok = await createDesktopShortcut()
         if (ok) {

@@ -69,6 +69,19 @@
 - 后端关闭 / 被杀的一刻，窗口立刻切回离线页——不会停在旧页面假装还活着
 - 离线页内置快捷按钮：重新加载 / 启动后端 / 自动探测后端 / 设置后端安装文件夹
 
+## macOS 状态（v0.1.7 重要说明）
+
+v0.1.7 修复了插件形态在 macOS 上无法定位 `Electron.app` 路径的问题（该 bug 导致窗口在 Mac 上完全静默失败）。
+
+但**当前开发者没有 Mac 实机**，以下事项仍然依赖 Mac 用户验证/贡献：
+
+- **.dmg 安装包未签名、未公证**：Apple 要求年度开发者计划（$99/年）才能给安装包签名+公证。首次打开 .dmg 里的应用，很可能提示「已损坏，无法打开」或「无法验证开发者」。这不是应用本身损坏，是 Gatekeeper 拦截了未签名应用。
+  - 临时解决：`xattr -cr "/Applications/DSH Clean Desktop Shell.app"`，然后右键 → 打开。
+  - 长期解决：需要一位有 Apple Developer 账号的 Mac 合作者协助签名/公证，或长期把 .dmg 安装体验写为「需要右键打开 / 执行 xattr」。
+- **Electron.app 解压后的可执行位、quarantine 扩展属性等**只有真机能确认行为是否完全正确。
+
+诚挚邀请有 Mac 环境、愿意一起打磨的同学参与：能帮忙验证安装流程、补充签名配置、或者把开机自启/登录项做进 Electron 托盘，欢迎直接提 PR 或在 Issue 里 @ 我，我会把你加入 [CONTRIBUTORS.md](./CONTRIBUTORS.md)。
+
 ## 安装
 
 **方式一：从 Release 下载安装包（想要独立桌面应用的用户）**
@@ -76,7 +89,12 @@
 - Windows：下载 `DSH-Clean-Desktop-Shell-Setup-<版本>.exe`
 - macOS：下载 `DSH-Clean-Desktop-Shell-<版本>.dmg`（Intel）或 `-arm64.dmg`（Apple Silicon）
 
-安装包会**自动创建桌面快捷方式**，并提供系统托盘等完整桌面体验。首次运行 Windows 安装包可能触发 SmartScreen 警告——**这是未签名程序的正常现象，不是病毒**，见下方「Windows SmartScreen 警告说明」。
+安装包会**自动创建桌面快捷方式**，并提供系统托盘等完整桌面体验。
+
+- **Windows**：首次运行安装包可能触发 SmartScreen 警告——**这是未签名程序的正常现象，不是病毒**，见下方「Windows SmartScreen 警告说明」。
+- **macOS**：.dmg 未签名/未公证，首次打开可能触发 Gatekeeper。见上方「macOS 状态」。
+
+
 
 **方式二：作为 DSH 插件安装（DSH 生态用户）**
 

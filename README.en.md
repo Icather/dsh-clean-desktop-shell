@@ -69,6 +69,29 @@ The tray **shows the backend state in real time** (running / starting / stopped 
 - The instant the backend stops (tray stop, kill or crash) the window flips back to the offline screen — a stale page never fakes "still alive"
 - The offline screen has self-service buttons: reload / start backend / auto-detect backend / set backend install folder
 
+## macOS status (v0.1.7 important note)
+
+v0.1.7 fixes the plugin-mode bug where the shell could not locate `Electron.app`
+on macOS, which caused the window to fail silently on Mac.
+
+However, **the maintainer does not currently have a Mac** to verify the
+following in person:
+
+- **The .dmg is unsigned and un-notarized**: Apple requires a yearly Developer
+  Program membership ($99/yr) for code signing + notarization. The first time you
+  open the app from the .dmg, Gatekeeper will likely say the app is "damaged"
+  or "cannot be verified".
+  - Workaround: run `xattr -cr "/Applications/DSH Clean Desktop Shell.app"`,
+    then right-click the app and choose Open.
+  - Long-term fix: a Mac co-maintainer with an Apple Developer account can help
+    set up signed + notarized builds.
+- Post-extract executable bits and quarantine extended attributes can only be
+  confirmed on real hardware.
+
+If you have a Mac and want to co-maintain macOS support (test the .dmg, set up
+signing, or add a launch-at-login tray item), PRs and verified issues are very
+welcome. You will be added to [CONTRIBUTORS.md](./CONTRIBUTORS.md).
+
 ## Install
 
 **Option 1: download the installer from Releases (for a standalone desktop app)**
@@ -76,7 +99,13 @@ The tray **shows the backend state in real time** (running / starting / stopped 
 - Windows: `DSH-Clean-Desktop-Shell-Setup-<version>.exe`
 - macOS: `DSH-Clean-Desktop-Shell-<version>.dmg` (Intel) or `-arm64.dmg` (Apple Silicon)
 
-The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray). The first time you run the Windows installer you may see a SmartScreen warning — **this is normal for unsigned programs, not a virus**, see "Windows SmartScreen warning" below.
+The installer **creates a desktop shortcut automatically** and provides the full desktop experience (tray).
+
+- **Windows**: the first time you run the installer you may see a SmartScreen
+  warning — **this is normal for unsigned programs, not a virus**, see
+  "Windows SmartScreen warning" below.
+- **macOS**: the .dmg is unsigned / un-notarized and may trigger Gatekeeper.
+  See "macOS status" above.
 
 **Option 2: install as a DSH plugin (DSH ecosystem users)**
 
