@@ -1,5 +1,5 @@
 /**
- * Desktop shortcut management (Windows .lnk via WScript.Shell).
+ * Desktop shortcut management (Windows .lnk via Electron's shell API).
  *
  * Used by:
  *  - first-run prompt in main.js ("create a desktop shortcut?")
@@ -12,11 +12,14 @@
  *
  * Pure dev mode (npm run dev from a checkout) has no stable executable,
  * so the feature stays disabled there.
+ *
+ * Electron's built-in shortcut API replaced the earlier hand-rolled
+ * PowerShell + WScript.Shell COM script: fewer moving parts (no spawned
+ * interpreter to hang or quote-escape), and it composes with the
+ * Start-menu shortcut path that already used the same API.
  */
 import { app, shell } from 'electron'
-import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { APP_USER_MODEL_ID } from './aumid.js'
@@ -45,64 +48,53 @@ export function shortcutSupported() {
   return isWin && (app.isPackaged || pluginArgs().length > 0)
 }
 
-function ps(str) {
-  return "'" + String(str).replace(/'/g, "''") + "'"
-}
-
-function runPs(script) {
-  return new Promise((resolve) => {
-    const p = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true,
-    })
-    let out = ''
-    p.stdout.on('data', (d) => {
-      out += d.toString()
-    })
-    p.on('error', () => resolve(null))
-    p.on('exit', () => resolve(out))
-  })
+/**
+ * The user's real Desktop. app.getPath('desktop') resolves OneDrive
+ * redirection and roaming profile policies — a hardcoded ~/Desktop misses
+ * those and writes the shortcut where the user will never see it.
+ */
+function desktopDir() {
+  try {
+    return app.getPath('desktop')
+  } catch {
+    return join(app.getPath('home'), 'Desktop')
+  }
 }
 
 /** True when a desktop shortcut already points at this app's exe. */
-export async function hasDesktopShortcut() {
-  if (!isWin) return false
-  const script =
-    `$ws = New-Object -ComObject WScript.Shell; ` +
-    `Get-ChildItem ${ps(join(homedir(), 'Desktop', '*.lnk'))} | ` +
-    `ForEach-Object { $ws.CreateShortcut($_.FullName).TargetPath }`
-  const out = await runPs(script)
-  if (out === null) return false
-  const target = process.execPath.toLowerCase()
-  return out
-    .split(/\r?\n/)
-    .map((s) => s.trim().toLowerCase())
-    .some((line) => line === target)
+export function hasDesktopShortcut() {
+  if (!isWin || !shortcutSupported()) return false
+  try {
+    const target = process.execPath.toLowerCase()
+    for (const entry of readdirSync(desktopDir())) {
+      if (!entry.toLowerCase().endsWith('.lnk')) continue
+      try {
+        // readShortcutLink throws on invalid/non-shortcut files — skip those.
+        const link = shell.readShortcutLink(join(desktopDir(), entry))
+        if (String(link.target).toLowerCase() === target) return true
+      } catch {
+        // unreadable .lnk — not ours
+      }
+    }
+  } catch {
+    // unreadable desktop — treat as "not present"
+  }
+  return false
 }
 
 /** Create (or overwrite) the desktop shortcut for this app. Returns bool. */
-export async function createDesktopShortcut() {
+export function createDesktopShortcut() {
   if (!shortcutSupported()) return false
-  const target = process.execPath
   const args = pluginArgs()
-  const lnk = join(homedir(), 'Desktop', SHORTCUT_NAME)
-  // Plugin mode: point the shortcut at the runtime exe + main.js argument.
-  // WScript needs the path double-quoted inside the Arguments string.
-  const argPart = args.length
-    ? `; $s.Arguments = ${ps(`"${args[0]}"`)}; `
-    : ''
-  // Plugin-mode exe has no custom icon resource — point the shortcut at the
-  // bundled .ico when present (packaged installers use the exe itself).
-  const iconLoc = existsSync(ICON_ICO) ? ICON_ICO : `${target},0`
-  const script =
-    `$ws = New-Object -ComObject WScript.Shell; ` +
-    `$s = $ws.CreateShortcut(${ps(lnk)}); ` +
-    `$s.TargetPath = ${ps(target)}; ` +
-    argPart +
-    `$s.WorkingDirectory = ${ps(dirname(target))}; ` +
-    `$s.IconLocation = ${ps(iconLoc)}; ` +
-    `$s.Save()`
-  const out = await runPs(script)
-  return out !== null
+  const ico = existsSync(ICON_ICO) ? ICON_ICO : undefined
+  // 'overwrite' makes the call idempotent (safe to re-run after updates).
+  return shell.writeShortcutLink(join(desktopDir(), SHORTCUT_NAME), 'overwrite', {
+    target: process.execPath,
+    args: args.length ? args.join(' ') : undefined,
+    icon: ico,
+    iconIndex: 0,
+    appUserModelId: APP_USER_MODEL_ID,
+  })
 }
 
 /**
@@ -115,7 +107,7 @@ export async function createDesktopShortcut() {
 export function ensureStartMenuShortcut() {
   if (!isWin || !shortcutSupported()) return false
   const lnkDir = join(
-    process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'),
+    process.env.APPDATA || join(app.getPath('home'), 'AppData', 'Roaming'),
     'Microsoft', 'Windows', 'Start Menu', 'Programs',
   )
   const lnk = join(lnkDir, SHORTCUT_NAME)

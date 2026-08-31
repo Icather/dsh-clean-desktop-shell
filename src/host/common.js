@@ -6,6 +6,7 @@
  * location electron/ and build/ live in the published package.
  */
 import { homedir } from 'node:os'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -50,4 +51,24 @@ export function runtimeRoot() {
 /** Launch diagnostics land here — the only thing a headless user can send us. */
 export function launchLogPath() {
   return join(dshHome(), 'desktop-shell-launch.log')
+}
+
+/**
+ * Download a file to disk via curl — shared by runtime provisioning and
+ * icon patching. Chosen over native fetch because undici (Node's fetch)
+ * ignores HTTP(S)_PROXY env vars unless a proxy dispatcher is wired in,
+ * while curl honors them out of the box (users behind Clash/v2ray rely on
+ * that). --max-time keeps a stalled proxy from hanging forever; --retry
+ * rides out transient failures.
+ */
+export function fetchFile(url, dest, timeoutSec = 600) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      'curl',
+      ['-L', '--fail', '--silent', '--show-error', '--retry', '2', '--max-time', String(timeoutSec), '-o', dest, url],
+      { windowsHide: true, stdio: 'ignore' },
+    )
+    child.on('error', () => resolve(false))
+    child.on('exit', (code) => resolve(code === 0))
+  })
 }

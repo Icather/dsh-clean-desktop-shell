@@ -12,13 +12,18 @@ import { app, BrowserWindow, dialog, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
-import { loadConfig, saveConfig } from './config.js'
+import { loadConfig, saveConfig, DEFAULT_TARGET_URL } from './config.js'
 import { detect } from './service.js'
 import { setupAutoUpdater } from './update.js'
 import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut, ensureStartMenuShortcut } from './shortcut.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
+import { setupCrashGuard } from './crashGuard.js'
 
 const isMac = process.platform === 'darwin'
+
+// Last-resort error capture (userData/shell-crash.log) — install before
+// anything else so even early startup failures leave a trace.
+setupCrashGuard()
 
 // Windows: pin the AppUserModelId so the taskbar shows our whale icon
 // instead of the generic Electron icon. Plugin mode uses a distinct ID
@@ -65,15 +70,16 @@ if (!gotLock) {
 
   async function createWindow() {
     const config = loadConfig()
-    const target = config.targetUrl || 'http://127.0.0.1:3080'
+    const target = config.targetUrl || DEFAULT_TARGET_URL
 
     mainWindow = createMainWindow({ target })
     mainWindow.on('closed', () => {
       mainWindow = null
     })
     mainWindow.on('close', (event) => {
-      // Close hides to tray unless we are actually quitting.
-      if (!app.isQuitting && config.closeToTray !== false) {
+      // Close hides to tray unless we are actually quitting. Read the
+      // config fresh so a runtime change to closeToTray takes effect.
+      if (!app.isQuitting && loadConfig().closeToTray !== false) {
         event.preventDefault()
         mainWindow?.hide()
       }
@@ -90,9 +96,11 @@ if (!gotLock) {
    */
   async function bootstrapBackend() {
     const config = loadConfig()
-    const target = config.targetUrl || 'http://127.0.0.1:3080'
+    const target = config.targetUrl || DEFAULT_TARGET_URL
     // Remote targets are the user's own business — never probe local.
-    if (target !== 'http://127.0.0.1:3080') return
+    // Origin comparison (not string equality) tolerates trailing slashes
+    // and an explicitly written default.
+    if (new URL(target).origin !== new URL(DEFAULT_TARGET_URL).origin) return
     await detect()
     // Reflect the post-detect state in the tray menu.
     refreshTrayMenu()
@@ -134,7 +142,7 @@ if (!gotLock) {
       },
       onReload: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          reloadWindow(mainWindow, loadConfig().targetUrl || 'http://127.0.0.1:3080')
+          reloadWindow(mainWindow, loadConfig().targetUrl || DEFAULT_TARGET_URL)
         }
       },
       onQuit: () => {

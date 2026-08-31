@@ -18,7 +18,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { probe, onStatusChange, detect } from './service.js'
 import { startBackendWithProgress, chooseBackendFolder } from './tray.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
@@ -35,8 +35,11 @@ const TASKBAR_ICO = join(PKG_ROOT, 'build', 'icon.ico')
 const ICON_PATH = existsSync(TASKBAR_ICO)
   ? TASKBAR_ICO
   : fileURLToPath(new URL('../build/icon.png', import.meta.url))
-// Local fallback page shown while the backend is down.
+// Local fallback page shown while the backend is down. The file URL is
+// precomputed so "is the offline page showing?" is an exact comparison,
+// not a substring sniff over arbitrary web content.
 const ERROR_PAGE = fileURLToPath(new URL('./error.html', import.meta.url))
+const ERROR_PAGE_URL = pathToFileURL(ERROR_PAGE).href
 
 // How often we re-probe the backend while the window is in "offline" mode.
 const RECONNECT_INTERVAL_MS = 2500
@@ -214,8 +217,7 @@ export function createMainWindow({ target }) {
   // Instant flip when the backend state machine changes (tray stop/start).
   const unsub = onStatusChange((st) => {
     if (win.isDestroyed()) return
-    const current = win.webContents.getURL()
-    const isOffline = current.includes('error.html')
+    const isOffline = win.webContents.getURL().startsWith(ERROR_PAGE_URL)
     if ((st.status === 'stopped' || st.status === 'error') && !isOffline) {
       // Backend went down while a real page is showing — go dark at once.
       showOffline(win)
@@ -230,7 +232,7 @@ export function createMainWindow({ target }) {
     if (!isMainFrame || code === ERR_ABORTED) return
     // Offline screen already showing — just keep re-probing, do not
     // reload the offline page again (avoids a reload loop if it fails).
-    if (win.webContents.getURL().includes('error.html')) {
+    if (win.webContents.getURL().startsWith(ERROR_PAGE_URL)) {
       startReconnect(win, target)
       return
     }

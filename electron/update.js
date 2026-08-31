@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import semver from 'semver'
 import { showProgress, setProgress, closeProgress } from './progress.js'
 import { loadConfig } from './config.js'
 
@@ -197,11 +198,16 @@ export async function checkForUpdatesAuto() {
   }
 }
 
-/** Parse "v1.2.3" / "1.2.3" → [1,2,3]; null when malformed. */
-function parseVersion(v) {
+/**
+ * Version parsing/comparison via semver — the industry-standard
+ * implementation (update-notifier, npm itself). Coercion strips the 'v'
+ * prefix and any prerelease/build suffix; gt compares correctly across
+ * digit-width differences that a hand-rolled tuple or string compare
+ * would get wrong.
+ */
+function coerceVersion(v) {
   if (!v) return null
-  const m = String(v).replace(/^v/i, '').trim().match(/^(\d+)\.(\d+)\.(\d+)/)
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
+  return semver.coerce(String(v))
 }
 
 /**
@@ -215,11 +221,7 @@ function currentVersion() {
 
 /** True when a is strictly newer than b. */
 function isNewer(a, b) {
-  if (!a || !b) return false
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i]
-  }
-  return false
+  return !!(a && b && semver.gt(a, b))
 }
 
 /**
@@ -233,17 +235,14 @@ export async function checkForUpdate() {
   let url = REPO_URL
 
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
     const res = await fetch(RELEASES_API, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(8000),
       headers: { Accept: 'application/vnd.github+json' },
     })
-    clearTimeout(timer)
     if (res.ok) {
       const data = await res.json()
       tag = data.tag_name || null
-      latest = parseVersion(tag)
+      latest = coerceVersion(tag)
       if (data.html_url) url = data.html_url
     }
   } catch {
@@ -281,10 +280,7 @@ export async function checkForUpdateNpm() {
   const url = 'https://www.npmjs.com/package/dsh-clean-desktop-shell'
 
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch(NPM_REGISTRY_API, { signal: controller.signal })
-    clearTimeout(timer)
+    const res = await fetch(NPM_REGISTRY_API, { signal: AbortSignal.timeout(8000) })
     if (res.ok) {
       const data = await res.json()
       latestStr = data['dist-tags']?.latest || null
@@ -293,8 +289,8 @@ export async function checkForUpdateNpm() {
     // Network error — no update known.
   }
 
-  const currentV = parseVersion(current)
-  const latestV = parseVersion(latestStr)
+  const currentV = coerceVersion(current)
+  const latestV = coerceVersion(latestStr)
   return {
     hasUpdate: isNewer(latestV, currentV),
     latest: latestStr ? `v${latestStr}` : null,
@@ -355,12 +351,35 @@ function updateCommandVariants(pm) {
 }
 
 /**
+ * Kill a shell-spawned child and its whole subtree. On Windows the direct
+ * child is a cmd.exe wrapper — killing it alone leaves the actual worker
+ * (e.g. pnpm/node) running; `taskkill /T` is the recognized tree kill.
+ */
+function treeKill(child) {
+  if (process.platform === 'win32' && child.pid) {
+    spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    })
+  } else {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // already gone
+    }
+  }
+}
+
+/**
  * Run a shell command, capturing tail output. Node's spawn with shell:true
  * always uses cmd.exe on Windows (regardless of the user's login shell being
  * PowerShell or cmd), which is also required for .cmd shims like pnpm — a
- * bare spawn would throw EINVAL. Resolves { ok, out, err }.
+ * bare spawn would throw EINVAL. Output is kept as a bounded tail so a
+ * chatty build cannot grow memory without limit. Resolves { ok, out, err }.
  */
 function runShell(cmd, cwd, timeoutMs = 5 * 60 * 1000) {
+  const CAP = 16 * 1024
+  const cap = (s) => (s.length > CAP ? s.slice(-CAP) : s)
   return new Promise((resolve) => {
     let out = ''
     let err = ''
@@ -371,10 +390,10 @@ function runShell(cmd, cwd, timeoutMs = 5 * 60 * 1000) {
       windowsHide: true, // no console flash from the GUI process
     })
     const timer = setTimeout(() => {
-      if (!settled) child.kill()
+      if (!settled) treeKill(child)
     }, timeoutMs)
-    child.stdout?.on('data', (d) => { out += d })
-    child.stderr?.on('data', (d) => { err += d })
+    child.stdout?.on('data', (d) => { out = cap(out + d) })
+    child.stderr?.on('data', (d) => { err = cap(err + d) })
     child.on('error', () => {
       settled = true
       clearTimeout(timer)

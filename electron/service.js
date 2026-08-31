@@ -11,10 +11,23 @@
  */
 import { spawn } from 'node:child_process'
 import { access } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { loadConfig } from './config.js'
+import { loadConfig, DEFAULT_TARGET_URL } from './config.js'
 
-const DEFAULT_PORT = 3080
+// The local backend endpoint — derived from the shared default, never a
+// duplicated literal.
+const LOCAL_URL = DEFAULT_TARGET_URL
+const DEFAULT_PORT = Number(new URL(DEFAULT_TARGET_URL).port) || 80
+
+// Long-lived backend output must not accumulate without bound — keep the
+// tail only (enough for ready-line matching and diagnostics).
+const OUTPUT_CAP = 64 * 1024
+
+function cappedAppend(prev, chunk) {
+  const s = prev + chunk
+  return s.length > OUTPUT_CAP ? s.slice(-OUTPUT_CAP) : s
+}
 
 let child = null
 let currentStatus = 'stopped'
@@ -48,7 +61,7 @@ export function getStatus() {
   return {
     status: currentStatus,
     port: DEFAULT_PORT,
-    url: `http://127.0.0.1:${DEFAULT_PORT}`,
+    url: LOCAL_URL,
     error: lastError,
     pid: child?.pid ?? null,
   }
@@ -57,10 +70,9 @@ export function getStatus() {
 /** Simple HTTP probe — true when something responds on the port. */
 export async function probe(url, timeoutMs = 1500) {
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const res = await fetch(url, { signal: controller.signal, redirect: 'follow' })
-    clearTimeout(timer)
+    // AbortSignal.timeout is the standard self-cleaning timeout — no manual
+    // controller/timer pair to leak when fetch rejects first.
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' })
     return res.status < 500
   } catch {
     return false
@@ -73,11 +85,10 @@ export async function probe(url, timeoutMs = 1500) {
  * or null when the backend is down.
  */
 export async function detect() {
-  const url = `http://127.0.0.1:${DEFAULT_PORT}`
-  const up = await probe(url)
+  const up = await probe(LOCAL_URL)
   if (up) {
     setStatus('running')
-    return url
+    return LOCAL_URL
   }
   setStatus('stopped')
   return null
@@ -154,13 +165,12 @@ export async function start({ backendPath } = {}) {
       startResolver = null
       // Timeout does not mean failure — the port may already be up while
       // the CLI never printed a parseable URL. Probe before giving up.
-      const url = `http://127.0.0.1:${DEFAULT_PORT}`
-      if (await probe(url, 1500)) {
+      if (await probe(LOCAL_URL, 1500)) {
         setStatus('running')
-        r.resolve(url)
+        r.resolve(LOCAL_URL)
         return
       }
-      child?.kill()
+      terminate(child)
       setStatus('error', 'dsh 后端启动超时（45s）')
       r.reject(new Error(lastError))
     }, 45000)
@@ -178,11 +188,11 @@ export async function start({ backendPath } = {}) {
       }
     }
     child.stdout.on('data', (d) => {
-      stdout += d.toString()
+      stdout = cappedAppend(stdout, d.toString())
       onData()
     })
     child.stderr.on('data', (d) => {
-      stderr += d.toString()
+      stderr = cappedAppend(stderr, d.toString())
       onData()
     })
   })
@@ -191,8 +201,8 @@ export async function start({ backendPath } = {}) {
 /**
  * Stop the backend.
  *
- * - If the backend was spawned by us, kill our child (and force-free the
- *   port — a shell-spawned .cmd can leave orphan node processes behind).
+ * - If the backend was spawned by us, terminate our child (tree kill — a
+ *   shell-spawned .cmd can leave orphan node processes behind).
  * - Otherwise (an external instance, e.g. the user ran `dsh web` themselves)
  *   find the process listening on the port and terminate it, but only when
  *   it looks like a node-based backend, never an unrelated program.
@@ -202,11 +212,7 @@ export async function stop() {
     const proc = child
     child = null
     setStatus('stopped')
-    await new Promise((resolve) => {
-      proc.once('exit', resolve)
-      proc.kill()
-      setTimeout(resolve, 3000)
-    })
+    await terminate(proc)
     await ensurePortFree(DEFAULT_PORT)
     return
   }
@@ -224,6 +230,37 @@ export async function stop() {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Terminate a spawned backend and wait for it to exit.
+ *
+ * On Windows `proc.kill()` only reaches the direct child — when the command
+ * is a .cmd shim, the node process it launched survives and keeps holding
+ * the port. `taskkill /T` (tree kill) is the recognized fix. POSIX: SIGTERM
+ * first, SIGKILL after a short grace period.
+ */
+async function terminate(proc) {
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return
+  const exited = new Promise((resolve) => proc.once('exit', resolve))
+  if (process.platform === 'win32' && proc.pid) {
+    await killProcess(proc.pid)
+  } else {
+    try {
+      proc.kill('SIGTERM')
+    } catch {
+      // already gone
+    }
+  }
+  const done = await Promise.race([exited.then(() => true), sleep(3000).then(() => false)])
+  if (!done && process.platform !== 'win32') {
+    try {
+      proc.kill('SIGKILL')
+    } catch {
+      // already gone
+    }
+    await Promise.race([exited, sleep(1000)])
+  }
+}
 
 /** Wait until nothing answers on the port (or give up after ~6s). */
 async function ensurePortFree(port, tries = 12) {
@@ -320,9 +357,27 @@ export async function findDshInFolder(folder) {
 }
 
 /**
+ * Candidate dsh CLI locations beyond the explicit config path:
+ * the DSH_BACKEND_DIR env var (documented, machine-independent) and the
+ * npm global bin dir. The previous list carried a developer-specific
+ * absolute path — removed in favor of config (backendPath) and env.
+ */
+function fallbackCandidates() {
+  const list = []
+  const envDir = process.env.DSH_BACKEND_DIR
+  if (envDir) list.push(join(envDir, 'dsh.cmd'), join(envDir, 'dsh'))
+  if (process.platform === 'win32') {
+    list.push(join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'npm', 'dsh.cmd'))
+  } else {
+    list.push('/usr/local/bin/dsh', join(homedir(), '.local', 'bin', 'dsh'))
+  }
+  return list
+}
+
+/**
  * Auto-detect the dsh install folder (the folder that contains the dsh
  * CLI), following the same resolution order used to start the backend:
- * PATH → common Windows install locations. Returns the folder path or null.
+ * config → DSH_BACKEND_DIR → PATH → npm global. Returns the folder or null.
  */
 export async function detectInstallFolder() {
   // 1) Explicit backend folder from config.
@@ -332,20 +387,14 @@ export async function detectInstallFolder() {
     if (found) return dirOf(found)
   }
 
-  // 2) `dsh` on PATH → resolve where it actually lives.
+  // 2) Candidates: DSH_BACKEND_DIR env, then npm global bin.
+  for (const c of fallbackCandidates()) {
+    if (await exists(c)) return dirOf(c)
+  }
+
+  // 3) `dsh` on PATH → resolve where it actually lives.
   const onPath = await commandPath('dsh')
   if (onPath) return dirOf(onPath)
-
-  // 3) Common locations.
-  if (process.platform === 'win32') {
-    const candidates = [
-      'D:\\deepseek-harness\\prod\\node_modules\\.bin\\dsh.cmd',
-      `${process.env.USERPROFILE}\\AppData\\Roaming\\npm\\dsh.cmd`,
-    ]
-    for (const c of candidates) {
-      if (await exists(c)) return dirOf(c)
-    }
-  }
   return null
 }
 
@@ -357,22 +406,16 @@ async function resolveDshCommand(backendPath) {
     if (found) return { command: found, args: [] }
   }
 
-  // 2) `dsh` on PATH — resolve to the real file so .cmd/.bat gets the
+  // 2) Candidates: DSH_BACKEND_DIR env, then npm global bin.
+  for (const c of fallbackCandidates()) {
+    if (await exists(c)) return { command: c, args: [] }
+  }
+
+  // 3) `dsh` on PATH — resolve to the real file so .cmd/.bat gets the
   //    shell treatment (a bare `spawn('dsh')` would ENOENT on Windows).
   const onPath = await commandPath('dsh')
   if (onPath) {
     return { command: /\.(cmd|bat)$/i.test(onPath) ? onPath : 'dsh', args: [] }
-  }
-
-  // 3) Common locations (dev convenience).
-  if (process.platform === 'win32') {
-    const candidates = [
-      'D:\\deepseek-harness\\prod\\node_modules\\.bin\\dsh.cmd',
-      `${process.env.USERPROFILE}\\AppData\\Roaming\\npm\\dsh.cmd`,
-    ]
-    for (const c of candidates) {
-      if (await exists(c)) return { command: c, args: [] }
-    }
   }
   return null
 }

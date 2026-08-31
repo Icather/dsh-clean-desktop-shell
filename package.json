@@ -1,6 +1,6 @@
 {
   "name": "dsh-clean-desktop-shell",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Clean desktop shell for DeepSeek Harness (DSH) as a DSH plugin — wraps your web profile in a native window, tray-managed backend, offline auto-reconnect, zero visual changes. DSH 插件形态的纯净桌面壳：复用现有 web profile，托盘管理后端，零视觉改造。",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node --check lib/index.js && node scripts/selftest-runtime.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/selftest-runtime.mjs",
     "dev": "electron electron/main.js",
     "icons": "node scripts/gen-icons.mjs",
     "pack": "electron-builder --win nsis",
@@ -118,7 +118,8 @@
     "electron@33.4.11": true
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "semver": "^7.7.2"
   },
   "desktopShell": {
     "electronVersion": "33.4.11"
