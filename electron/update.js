@@ -1,17 +1,24 @@
 /**
- * Update handling — Windows auto-update, macOS manual download.
+ * Update handling — three install forms, three update sources.
  *
  * Windows (packaged app): uses electron-updater to download the new
  * installer from GitHub Releases in the background and install it on
  * restart. Progress is shown in the small progress window.
  *
- * macOS / dev mode: falls back to a manual check that opens the GitHub
- * Releases page (macOS auto-update needs a Developer ID signature which
- * this project does not have yet).
+ * macOS (packaged app): manual check that opens the GitHub Releases page
+ * (macOS auto-update needs a Developer ID signature which this project
+ * does not have yet).
+ *
+ * Plugin mode (npm-installed, !app.isPackaged): checks the npm registry for
+ * dist-tags.latest and offers a one-click update executed through the
+ * package manager that actually installed the plugin (inferred from the
+ * lockfile next to the install, vercel-style), with command variants to
+ * absorb environment and pnpm-version differences.
  */
 import { app, shell, dialog } from 'electron'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { showProgress, setProgress, closeProgress } from './progress.js'
 import { loadConfig } from './config.js'
@@ -25,13 +32,16 @@ const NPM_REGISTRY_API = 'https://registry.npmjs.org/dsh-clean-desktop-shell'
 // the Electron runtime version (e.g. 33.4.11). Read the plugin's own version
 // from its package.json instead.
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const PKG_VERSION = (() => {
+const PKG_INFO = (() => {
   try {
-    return JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version
+    return JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))
   } catch {
     return null
   }
 })()
+const PKG_VERSION = PKG_INFO?.version ?? null
+// Read from the plugin's own manifest — never hardcode the package name.
+const PKG_NAME = PKG_INFO?.name ?? 'dsh-clean-desktop-shell'
 
 let autoUpdater = null
 let updaterPromise = null
@@ -132,18 +142,44 @@ export async function checkForUpdatesAuto() {
   const isPlugin = !app.isPackaged
   const r = isPlugin ? await checkForUpdateNpm() : await checkForUpdate()
   if (r.hasUpdate) {
+    if (!isPlugin) {
+      const choice = dialog.showMessageBoxSync({
+        type: 'info',
+        title: '发现新版本',
+        message: `当前版本 ${r.current}，最新版本 ${r.latest}。`,
+        detail: 'macOS 自动更新需要代码签名，当前请前往 GitHub Releases 手动下载。',
+        buttons: ['前往下载', '取消'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      if (choice === 0) openUrl(r.url)
+      return
+    }
+
+    // Plugin mode (Plan B + A): offer a one-click update executed through the
+    // package manager that actually installed this package, and show the
+    // equivalent manual command plus the DSH market path.
+    const plan = detectPluginUpdatePlan()
+    const variants = plan ? updateCommandVariants(plan.pm) : []
+    const cmdLine = variants[0] || null
+    const marketHint = '① DSH 网页「设置 → 插件市场 → 已安装」→「更新」（完成后按提示重启）。'
+    const detail = cmdLine
+      ? `${marketHint}\n② 或在目录 ${plan.profileRoot} 下执行：\n${cmdLine}\n（按 Ctrl+C 可复制本对话框全部文字）`
+      : marketHint
     const choice = dialog.showMessageBoxSync({
       type: 'info',
       title: '发现新版本',
       message: `当前版本 ${r.current}，最新版本 ${r.latest}。`,
-      detail: isPlugin
-        ? '插件形态请到 DSH 网页的「设置 → 插件市场 → 已安装」里点「更新」，完成后按提示重启即可生效。'
-        : 'macOS 自动更新需要代码签名，当前请前往 GitHub Releases 手动下载。',
-      buttons: isPlugin ? ['打开 DSH 网页', '稍后'] : ['前往下载', '取消'],
+      detail,
+      buttons: cmdLine ? ['立即更新', '打开 DSH 网页', '稍后'] : ['打开 DSH 网页', '稍后'],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: cmdLine ? 2 : 1,
     })
-    if (choice === 0) openUrl(isPlugin ? loadConfig().targetUrl : r.url)
+    if (cmdLine && choice === 0) {
+      await updatePluginViaPackageManager(plan, variants, r)
+    } else if (choice === (cmdLine ? 1 : 0)) {
+      openUrl(loadConfig().targetUrl)
+    }
   } else if (r.latest) {
     dialog.showMessageBoxSync({
       type: 'info',
@@ -265,4 +301,152 @@ export async function checkForUpdateNpm() {
     current,
     url,
   }
+}
+
+/**
+ * Locate the directory whose package.json declares this plugin as a dependency
+ * (the DSH profile root: <root>/node_modules/<pkg>), and infer the package
+ * manager that manages it from the lockfile found there (vercel-style).
+ * @returns {{ pm: 'pnpm'|'npm'|'yarn'|'bun', profileRoot: string } | null}
+ */
+function detectPluginUpdatePlan() {
+  try {
+    const nm = dirname(PKG_ROOT)
+    if (basename(nm) !== 'node_modules') return null
+    const profileRoot = dirname(nm)
+    if (!existsSync(join(profileRoot, 'package.json'))) return null
+    const pm = existsSync(join(profileRoot, 'pnpm-lock.yaml')) ? 'pnpm'
+      : existsSync(join(profileRoot, 'package-lock.json')) ? 'npm'
+      : existsSync(join(profileRoot, 'yarn.lock')) ? 'yarn'
+      : (existsSync(join(profileRoot, 'bun.lockb')) || existsSync(join(profileRoot, 'bun.lock'))) ? 'bun'
+      : null
+    return pm ? { pm, profileRoot } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Command candidates for the detected package manager, ordered from the most
+ * explicit to the most tolerant. Environment differences (pnpm only reachable
+ * via corepack) and pnpm version/flag differences are absorbed by trying them
+ * in order — the first variant that exits 0 wins. Quoting via JSON.stringify
+ * keeps paths/args safe in cmd.exe, PowerShell and POSIX shells alike.
+ */
+function updateCommandVariants(pm) {
+  const q = JSON.stringify(PKG_NAME)
+  switch (pm) {
+    case 'pnpm':
+      return [
+        `pnpm update ${q} --latest --config.minimumReleaseAge=0`,
+        `pnpm update ${q} --latest`,
+        `pnpm update ${q}`,
+        `corepack pnpm update ${q} --latest`,
+      ]
+    case 'npm':
+      return [`npm install ${q}@latest`]
+    case 'yarn':
+      return [`yarn up ${q}@latest`, `yarn upgrade ${q} --latest`]
+    case 'bun':
+      return [`bun update ${q}`, `bun add ${q}@latest`]
+    default:
+      return []
+  }
+}
+
+/**
+ * Run a shell command, capturing tail output. Node's spawn with shell:true
+ * always uses cmd.exe on Windows (regardless of the user's login shell being
+ * PowerShell or cmd), which is also required for .cmd shims like pnpm — a
+ * bare spawn would throw EINVAL. Resolves { ok, out, err }.
+ */
+function runShell(cmd, cwd, timeoutMs = 5 * 60 * 1000) {
+  return new Promise((resolve) => {
+    let out = ''
+    let err = ''
+    let settled = false
+    const child = spawn(cmd, {
+      cwd,
+      shell: true,
+      windowsHide: true, // no console flash from the GUI process
+    })
+    const timer = setTimeout(() => {
+      if (!settled) child.kill()
+    }, timeoutMs)
+    child.stdout?.on('data', (d) => { out += d })
+    child.stderr?.on('data', (d) => { err += d })
+    child.on('error', () => {
+      settled = true
+      clearTimeout(timer)
+      resolve({ ok: false, out: tail(out), err: tail(err) })
+    })
+    child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ ok: code === 0, out: tail(out), err: tail(err) })
+    })
+  })
+}
+
+function tail(s, n = 4000) {
+  return s.length > n ? s.slice(-n) : s
+}
+
+/** Read the currently installed plugin version from disk (post-update check). */
+function installedPluginVersion() {
+  try {
+    return JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')).version || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * One-click plugin update: try each command variant until one exits 0, then
+ * verify the on-disk version actually changed. Three outcomes — success,
+ * "ran but version unchanged" (constraint/cooldown), or failure with the
+ * attempted commands and output tail for manual retry.
+ */
+async function updatePluginViaPackageManager(plan, variants, check) {
+  showProgress({ title: '插件更新', message: `正在通过 ${plan.pm} 更新插件…` })
+  let result = null
+  for (const cmd of variants) {
+    setProgress({ title: '插件更新', message: `正在执行：${cmd}`, state: 'busy' })
+    result = await runShell(cmd, plan.profileRoot)
+    if (result.ok) break
+  }
+  closeProgress()
+
+  const newVer = installedPluginVersion()
+  if (result?.ok && newVer && newVer !== check.current) {
+    dialog.showMessageBoxSync({
+      type: 'info',
+      title: '更新完成',
+      message: `插件已更新到 ${newVer}。`,
+      detail: '重启 dsh web 后生效（可从本应用托盘菜单重启后端）。',
+    })
+    return
+  }
+  if (result?.ok) {
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: '版本未变化',
+      message: `命令执行成功，但插件版本仍为 ${check.current}。`,
+      detail: '可能被 package.json 的版本约束或新版本冷却策略限制，可稍后重试，或到 DSH 插件市场更新。',
+    })
+    return
+  }
+  const logTail = [result?.out, result?.err].filter(Boolean).join('\n').trim()
+  dialog.showMessageBoxSync({
+    type: 'warning',
+    title: '自动更新失败',
+    message: '无法自动更新插件，请手动执行或到 DSH 插件市场更新。',
+    detail: [
+      `已依次尝试：\n${variants.join('\n')}`,
+      logTail ? `命令输出（末尾）：\n${logTail}` : '',
+      `手动命令（在目录 ${plan.profileRoot} 下）：\n${variants[0]}`,
+      '按 Ctrl+C 可复制本对话框全部文字。',
+    ].filter(Boolean).join('\n\n'),
+  })
 }
