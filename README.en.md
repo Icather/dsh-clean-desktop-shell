@@ -87,10 +87,42 @@ following in person:
     set up signed + notarized builds.
 - Post-extract executable bits and quarantine extended attributes can only be
   confirmed on real hardware.
+- **If the window still does not appear**: a failed launch writes diagnostics
+  to `desktop-shell-launch.log` inside your DSH home:
+
+  ```sh
+  cat "${DSH_HOME:-$HOME/.dsh}/desktop-shell-launch.log"
+  ```
+
+  Paste the contents into an issue — it records platform, arch, Node version,
+  DSH home, runtime directory and the exact error. With no window on screen,
+  this is the only thing that can tell us what went wrong.
 
 If you have a Mac and want to co-maintain macOS support (test the .dmg, set up
 signing, or add a launch-at-login tray item), PRs and verified issues are very
 welcome. You will be added to [CONTRIBUTORS.md](./CONTRIBUTORS.md).
+
+## Security & permissions: what it actually does
+
+Third-party scanners (e.g. [dsh-xray](https://github.com/unStone/dsh-xray)) rate
+this project as "high capability combined with sensitive behavior". **That rating
+is not a false positive** — every item is real, and every item has a concrete,
+necessary reason. You should know what runs on your machine.
+
+| Behavior | Why it is required | Where |
+|:--|:--|:--|
+| Spawning system commands | The shell's core job is **starting / restarting / stopping the `dsh web` backend** and probing port 3080. There is no way to do that without system commands. | `electron/service.js` |
+| Downloading the ~100MB Electron runtime | Needed on first launch. Two sources race with a 3s timeout: `github.com` and `npmmirror.com` — the latter is a CN mirror that is usually much faster on Chinese networks. | `src/host/runtime.js` |
+| Calling `api.github.com` | Only for the tray's "Check for updates" action, to read the latest release metadata. | `electron/update.js` |
+| Reading env vars | Path resolution and feature switches only: `DSH_HOME` (DSH home), `DSH_SHELL_ELECTRON_DIR` (reuse a local Electron, skip the download), `DSH_SHELL_AUTO_LAUNCH=0` (disable auto-launch), `USERPROFILE` / `APPDATA` (locate `dsh.cmd` and the shortcuts folder on Windows). | `src/host/common.js`, `src/host/index.js`, `electron/shortcut.js` |
+| Patching the DSH runtime (`cordis.patch.yml`) | **DSH's official plugin registration mechanism** — every DSH plugin mounts this way, it is not specific to this project. | `cordis.patch.yml` |
+
+**The line it does not cross**: no telemetry, no uploads, no reading of your
+conversation data. The network requests above are the only two kinds that exist,
+and both can be avoided entirely by setting `DSH_SHELL_ELECTRON_DIR`.
+
+The unsigned-installer warnings (Windows SmartScreen, macOS Gatekeeper) come from
+the **absence of a code-signing certificate**, not from any of the above.
 
 ## Install
 
@@ -198,6 +230,21 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.7
+- **Fixed a silent failure that made the window never open on macOS**: the
+  Electron macOS archive is an `Electron.app` bundle with the binary at
+  `Electron.app/Contents/MacOS/Electron`; the launcher was looking for a
+  top-level `electron` (the Linux layout) and gave up without any feedback.
+- Extraction now tries multiple strategies (ditto / unzip / tar) and verifies
+  the payload; the executable bit is restored and the macOS quarantine
+  attribute is cleared afterwards.
+- Launch failures no longer vanish into the log: diagnostics are written to
+  `desktop-shell-launch.log` and its full path is reported.
+- macOS tray now uses a template image so it adapts to light/dark menu bars;
+  the Windows-only "create desktop shortcut" item is hidden elsewhere.
+- Added `CONTRIBUTORS.md` and an open call for Mac co-maintainers (signing,
+  notarization, real-device verification).
 
 ### 0.1.6
 - Fixed "check for updates" reporting the Electron runtime version in plugin mode.

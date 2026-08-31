@@ -79,8 +79,31 @@ v0.1.7 修复了插件形态在 macOS 上无法定位 `Electron.app` 路径的�
   - 临时解决：`xattr -cr "/Applications/DSH Clean Desktop Shell.app"`，然后右键 → 打开。
   - 长期解决：需要一位有 Apple Developer 账号的 Mac 合作者协助签名/公证，或长期把 .dmg 安装体验写为「需要右键打开 / 执行 xattr」。
 - **Electron.app 解压后的可执行位、quarantine 扩展属性等**只有真机能确认行为是否完全正确。
+- **如果窗口还是没弹出来**：启动失败时会把诊断信息写到 DSH home 下的 `desktop-shell-launch.log`：
+
+  ```sh
+  cat "${DSH_HOME:-$HOME/.dsh}/desktop-shell-launch.log"
+  ```
+
+  把内容贴到 Issue 即可——里面记录了平台、架构、Node 版本、DSH home、运行时目录和具体报错。没有界面时，这是唯一能回传的信息。
 
 诚挚邀请有 Mac 环境、愿意一起打磨的同学参与：能帮忙验证安装流程、补充签名配置、或者把开机自启/登录项做进 Electron 托盘，欢迎直接提 PR 或在 Issue 里 @ 我，我会把你加入 [CONTRIBUTORS.md](./CONTRIBUTORS.md)。
+
+## 安全与权限：它到底做了什么
+
+第三方安全扫描器（如 [dsh-xray](https://github.com/unStone/dsh-xray)）会给本项目打出「高能力 + 敏感行为」的评级。这个评级**没有误报**——列出的每一条都属实，但每一条都有明确且必要的原因。既然要装进你的机器，就该摊开讲清楚。
+
+| 行为 | 为什么必须这么做 | 代码位置 |
+|:--|:--|:--|
+| 执行系统命令（spawn） | 壳的核心功能就是**启动 / 重启 / 停止 `dsh web` 后端**，以及探测 3080 端口占用。不调用系统命令无法实现。 | `electron/service.js` |
+| 下载约 100MB 的 Electron 运行时 | 首次启动需要。两个源按网络环境自动竞速（3 秒超时）：`github.com` 与 `npmmirror.com`——后者是国内镜像，CN 网络下通常更快。 | `src/host/runtime.js` |
+| 访问 `api.github.com` | 仅用于托盘「检查更新」拉取最新 Release 信息。 | `electron/update.js` |
+| 读取环境变量 | 只用于定位路径和功能开关：`DSH_HOME`（DSH 主目录）、`DSH_SHELL_ELECTRON_DIR`（复用本地 Electron，跳过下载）、`DSH_SHELL_AUTO_LAUNCH=0`（关闭自动弹窗）、`USERPROFILE` / `APPDATA`（Windows 下定位 `dsh.cmd` 与快捷方式目录）。 | `src/host/common.js`、`src/host/index.js`、`electron/shortcut.js` |
+| 修改 DSH 运行时（`cordis.patch.yml`） | **DSH 官方的插件注册机制**，所有 DSH 插件都靠它挂载，并非本项目特有行为。 | `cordis.patch.yml` |
+
+**边界**：不上传任何数据、不读取会话内容、不回传遥测。全部网络请求只有上面两类（下载运行时 / 查更新），且都可通过设置 `DSH_SHELL_ELECTRON_DIR` 完全避免。
+
+安装包的未签名警告（Windows SmartScreen、macOS Gatekeeper）来自**缺少代码签名证书**，与上述行为无关。
 
 ## 安装
 
@@ -188,6 +211,13 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 ```
 
 ## 更新历史
+
+### 0.1.7
+- **修复 macOS 上窗口完全打不开的静默失败**：Electron 的 macOS 包是 `Electron.app` 应用包，可执行文件位于 `Electron.app/Contents/MacOS/Electron`；此前按 Linux 布局去找顶层 `electron`，导致 Mac 上必然启动失败且无任何提示。
+- 解压改为多策略回退（ditto / unzip / tar）并校验产物；解压后补齐可执行位，清除 macOS quarantine 扩展属性。
+- 启动失败不再只写日志：诊断信息落盘到 `desktop-shell-launch.log`，并在提示中给出完整路径。
+- macOS 托盘改用模板图，深浅色菜单栏自适应；非 Windows 平台隐藏「创建桌面快捷方式」。
+- 新增 `CONTRIBUTORS.md`，公开招募 Mac 合作开发者（代码签名 / 公证 / 实机验证）。
 
 ### 0.1.6
 - 修复插件形态下「检查更新」误报 Electron 运行时版本号的问题。
