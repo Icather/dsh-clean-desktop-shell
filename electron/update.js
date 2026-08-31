@@ -18,6 +18,8 @@ import { loadConfig } from './config.js'
 
 const REPO_URL = 'https://github.com/Icather/dsh-clean-desktop-shell'
 const RELEASES_API = 'https://api.github.com/repos/Icather/dsh-clean-desktop-shell/releases/latest'
+// npm registry — the update source for plugin (npm-installed) mode.
+const NPM_REGISTRY_API = 'https://registry.npmjs.org/dsh-clean-desktop-shell'
 
 // Plugin (bare-runtime) mode has no app bundle, so app.getVersion() returns
 // the Electron runtime version (e.g. 33.4.11). Read the plugin's own version
@@ -125,9 +127,10 @@ export async function checkForUpdatesAuto() {
     return
   }
 
-  // Manual path (macOS / dev mode): compare versions, offer GitHub page.
-  const r = await checkForUpdate()
+  // Manual path. Plugin mode is installed via npm/DSH market, so it checks the
+  // npm registry; the packaged desktop app checks GitHub Releases.
   const isPlugin = !app.isPackaged
+  const r = isPlugin ? await checkForUpdateNpm() : await checkForUpdate()
   if (r.hasUpdate) {
     const choice = dialog.showMessageBoxSync({
       type: 'info',
@@ -145,13 +148,15 @@ export async function checkForUpdatesAuto() {
     dialog.showMessageBoxSync({
       type: 'info',
       title: '已是最新版本',
-      message: `当前版本 ${r.current} 已是最新（${r.latest}）。`,
+      message: `当前版本 ${r.current} 已是最新。`,
     })
   } else {
     dialog.showMessageBoxSync({
       type: 'warning',
       title: '检查更新失败',
-      message: '无法连接 GitHub 检查更新，请检查网络后重试。',
+      message: isPlugin
+        ? '无法连接 npm 检查更新，请检查网络后重试。'
+        : '无法连接 GitHub 检查更新，请检查网络后重试。',
     })
   }
 }
@@ -226,4 +231,38 @@ export function openRepo() {
 /** Open an arbitrary URL in the default browser. */
 export function openUrl(url) {
   shell.openExternal(url)
+}
+
+/**
+ * Version check for plugin (npm-installed) mode. The plugin is updated through
+ * the npm registry / DSH market, so its "latest" must come from npm — NOT from
+ * GitHub Releases (that endpoint is only for the packaged desktop app).
+ * @returns {{ hasUpdate: boolean, latest?: string, current: string, url: string }}
+ */
+export async function checkForUpdateNpm() {
+  const current = currentVersion()
+  let latestStr = null
+  const url = 'https://www.npmjs.com/package/dsh-clean-desktop-shell'
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 8000)
+    const res = await fetch(NPM_REGISTRY_API, { signal: controller.signal })
+    clearTimeout(timer)
+    if (res.ok) {
+      const data = await res.json()
+      latestStr = data['dist-tags']?.latest || null
+    }
+  } catch {
+    // Network error — no update known.
+  }
+
+  const currentV = parseVersion(current)
+  const latestV = parseVersion(latestStr)
+  return {
+    hasUpdate: isNewer(latestV, currentV),
+    latest: latestStr ? `v${latestStr}` : null,
+    current,
+    url,
+  }
 }
