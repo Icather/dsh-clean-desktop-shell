@@ -231,6 +231,18 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 
 ## Changelog
 
+### 0.1.10
+- Version comparison now uses semver (`semver.coerce` + `semver.gt`) — the industry standard — replacing the hand-rolled tuple parser.
+- All HTTP timeouts migrated to `AbortSignal.timeout` (standard self-cleaning API, no manual controller leaks).
+- Config persistence switched to atomic writes (tmp + rename); a crash mid-write can no longer truncate config.json.
+- Removed the developer-machine-specific hardcoded path (`D:\deepseek-harness\prod\...`); replaced with config `backendPath` + `DSH_BACKEND_DIR` env var + npm global dir candidates.
+- Windows backend stop now uses `taskkill /T /F` tree kill (the old `proc.kill()` left orphan node children holding the port when the command was a .cmd shim); POSIX falls back through SIGTERM → SIGKILL gracefully.
+- Shortcut management rewritten to Electron-native `shell.writeShortcutLink` / `readShortcutLink`, dropping the PowerShell + WScript COM dependency (also fixes OneDrive Desktop redirection via `app.getPath('desktop')`).
+- New process-level crash guard: `uncaughtException` / `unhandledRejection` append to `userData/shell-crash.log` (128 KB cap with auto-truncation) — attachable in bug reports.
+- Electron runtime zip now verified against SHASUMS256.txt post-download (SHA-256 streaming check); corrupted files are discarded and the next mirror source is tried.
+- Resilience hardening: backend stdout/stderr capped at 64 KB ring buffer; config load type-validates known keys and silently drops unknown ones; offline page detection upgraded from `includes('error.html')` to precise file:// URL comparison.
+- `npm run check` syntax gate expanded from 1 file (lib/index.js) to all 17 shipped JS files.
+
 ### 0.1.9
 - One-click "update now" for plugin mode when a new version is found: the
   installing package manager (pnpm/npm/yarn/bun) is inferred from the lockfile

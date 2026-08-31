@@ -212,6 +212,18 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 
 ## 更新历史
 
+### 0.1.10
+- 版本比较改用 semver（industry-standard `semver.coerce` + `semver.gt`），替换手写元组比较。
+- 所有 HTTP 超时改为 `AbortSignal.timeout`（标准自清理 API，无泄漏风险）。
+- 配置持久化改为原子写入（tmp + rename），崩溃/断电不会留下截断的 config.json。
+- 移除代码中硬编码的 `D:\deepseek-harness\prod\...` 开发机路径：改用 config backendPath + `DSH_BACKEND_DIR` 环境变量 + npm 全局目录候选。
+- Windows 后端进程停止改用 `taskkill /T /F` 树杀（.cmd shim 留下的孤儿 node 进程不再占端口）；POSIX 先 SIGTERM 再 SIGKILL 优雅降级。
+- 快捷方式管理整体替换为 Electron 原生 `shell.writeShortcutLink` / `readShortcutLink`，移除 PowerShell + COM 依赖（顺带修复 OneDrive 桌面重定向问题）。
+- 新增进程级 crash guard：`uncaughtException` / `unhandledRejection` 写入 `userData/shell-crash.log`（128KB 上限自动截断），便于附在 bug 报告中。
+- Electron runtime 下载后新增 SHA-256 完整性校验（对比源站点 SHASUMS256.txt），损坏文件自动跳到下一源重试。
+- 冗余加固：后端 stdout/stderr 缓冲 64KB 环形截断；配置字段类型校验并自动丢弃未知键；窗口离线页检测从 `includes('error.html')` 改为精确 URL 比对。
+- 自检脚本 `npm run check` 扩展到覆盖全部 17 个发布 JS 文件的语法门禁（此前只检查 lib/index.js）。
+
 ### 0.1.9
 - 插件形态发现新版本时新增「立即更新」一键更新：从安装位置旁的 lockfile 推断实际使用的包管理器（pnpm/npm/yarn/bun），按命令变体链逐条尝试（含 corepack 兜底），吸收 PATH 与 pnpm 版本差异；更新后校验磁盘版本，成功 / 未变化 / 失败三态弹窗，失败时附已试命令与输出（可复制）。
 - 更新弹窗同时内嵌可复制的手动更新命令，并保留 DSH 插件市场入口；Windows 下经 `shell:true` + `windowsHide` 执行，兼容 `.cmd` shim 与 PowerShell / cmd 环境。
