@@ -249,7 +249,7 @@ export async function checkForUpdate() {
     // Network error — no update known.
   }
 
-  const currentV = parseVersion(current)
+  const currentV = coerceVersion(current)
   return {
     hasUpdate: isNewer(latest, currentV),
     latest: tag,

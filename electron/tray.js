@@ -19,7 +19,7 @@ import {
   onStatusChange,
 } from './service.js'
 import { showProgress, setProgress, closeProgress } from './progress.js'
-import { checkForUpdate, checkForUpdatesAuto, isAutoUpdateSupported, openRepo, openUrl } from './update.js'
+import { checkForUpdatesAuto, openRepo } from './update.js'
 import { shortcutSupported, createDesktopShortcut } from './shortcut.js'
 
 const trayIconPath = join(
@@ -142,37 +142,11 @@ export function refreshTrayMenu() {
     {
       label: '检查更新…',
       click: async () => {
-        // Windows (packaged): auto-download + install on restart.
-        // macOS / dev mode: manual page link (macOS needs a signature).
-        if (isAutoUpdateSupported()) {
-          await checkForUpdatesAuto()
-          return
-        }
-        const r = await checkForUpdate()
-        if (r.hasUpdate) {
-          const choice = dialog.showMessageBoxSync({
-            type: 'info',
-            title: '发现新版本',
-            message: `当前版本 ${r.current}，最新版本 ${r.latest}。`,
-            detail: '是否前往 GitHub Releases 页面下载？',
-            buttons: ['前往下载', '取消'],
-            defaultId: 0,
-            cancelId: 1,
-          })
-          if (choice === 0) openUrl(r.url)
-        } else if (r.latest) {
-          dialog.showMessageBoxSync({
-            type: 'info',
-            title: '已是最新版本',
-            message: `当前版本 ${r.current} 已是最新（${r.latest}）。`,
-          })
-        } else {
-          dialog.showMessageBoxSync({
-            type: 'warning',
-            title: '检查更新失败',
-            message: '无法连接 GitHub 检查更新，请检查网络后重试。',
-          })
-        }
+        // checkForUpdatesAuto() handles all three modes internally:
+        //   Windows packaged → electron-updater auto-download
+        //   Plugin mode      → npm registry check + one-click update
+        //   macOS packaged   → GitHub Releases manual link
+        await checkForUpdatesAuto()
       },
     },
     {
