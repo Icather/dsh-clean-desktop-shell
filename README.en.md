@@ -231,6 +231,26 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 
 ## Changelog
 
+### 0.1.9
+- One-click "update now" for plugin mode when a new version is found: the
+  installing package manager (pnpm/npm/yarn/bun) is inferred from the lockfile
+  next to the install, and a chain of command variants (with a corepack
+  fallback) absorbs PATH and pnpm version differences. The on-disk version is
+  verified afterwards, with success / unchanged / failure dialogs — failures
+  list the attempted commands and output (copyable).
+- The update dialog also shows a copyable manual command and keeps the DSH
+  market entry; commands run via `shell:true` + `windowsHide` on Windows for
+  `.cmd` shim and PowerShell / cmd compatibility.
+
+### 0.1.8
+- Plugin (npm-installed) mode now checks the npm registry `dist-tags.latest`
+  and compares it against the local version from the same source, instead of
+  wrongly querying GitHub `/releases/latest` (when the GitHub Latest tag
+  lagged behind, this produced the contradictory "current 0.1.7 is up to date
+  (v0.1.6)" dialog).
+- The packaged desktop app still uses GitHub Releases; dropped the redundant
+  version repetition in the "up to date" dialog.
+
 ### 0.1.7
 - **Fixed a silent failure that made the window never open on macOS**: the
   Electron macOS archive is an `Electron.app` bundle with the binary at

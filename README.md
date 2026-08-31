@@ -212,6 +212,14 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 
 ## 更新历史
 
+### 0.1.9
+- 插件形态发现新版本时新增「立即更新」一键更新：从安装位置旁的 lockfile 推断实际使用的包管理器（pnpm/npm/yarn/bun），按命令变体链逐条尝试（含 corepack 兜底），吸收 PATH 与 pnpm 版本差异；更新后校验磁盘版本，成功 / 未变化 / 失败三态弹窗，失败时附已试命令与输出（可复制）。
+- 更新弹窗同时内嵌可复制的手动更新命令，并保留 DSH 插件市场入口；Windows 下经 `shell:true` + `windowsHide` 执行，兼容 `.cmd` shim 与 PowerShell / cmd 环境。
+
+### 0.1.8
+- 插件形态（npm 安装）的更新检查改查 npm registry 的 `dist-tags.latest`，与本地版本同源对比；不再错爬 GitHub `/releases/latest`（此前 GitHub Latest 标记未及时挪动时会弹出「当前 0.1.7 已是最新（v0.1.6）」的自相矛盾提示）。
+- 打包桌面应用仍走 GitHub Releases；修复「已是最新」弹窗括号内重复显示版本号的文案。
+
 ### 0.1.7
 - **修复 macOS 上窗口完全打不开的静默失败**：Electron 的 macOS 包是 `Electron.app` 应用包，可执行文件位于 `Electron.app/Contents/MacOS/Electron`；此前按 Linux 布局去找顶层 `electron`，导致 Mac 上必然启动失败且无任何提示。
 - 解压改为多策略回退（ditto / unzip / tar）并校验产物；解压后补齐可执行位，清除 macOS quarantine 扩展属性。
