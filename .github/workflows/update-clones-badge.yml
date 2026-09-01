@@ -1,0 +1,70 @@
+name: Update Clones Badge
+
+on:
+  schedule:
+    # 每天 UTC 18:00 = 北京时间 02:00（避开活跃时段，减少冲突）
+    - cron: "0 18 * * *"
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  update-badge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch clones data and update README
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取近 14 天的 clones 数据
+          API_URL="https://api.github.com/repos/${{ github.repository }}/traffic/clones"
+          CLONES_JSON=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$API_URL")
+
+          if [ -z "$CLONES_JSON" ]; then
+            echo "::error::Failed to fetch clones data"
+            exit 1
+          fi
+
+          # 提取近 14 天总量和 uniques
+          TOTAL=$(echo "$CLONES_JSON" | jq '.count')
+          UNIQUES=$(echo "$CLONES_JSON" | jq '.uniques')
+
+          echo "Clones (14d): total=$TOTAL, uniques=$UNIQUES"
+
+          # 更新 README.md 中的 clones 徽章
+          # 原始格式: clones-NNN%20%2F%2014d-8957E5
+          # 新格式:   clones-NNN%20%2F%2014d-8957E5
+          # 也支持显示 uniques: clones-NNN%20%2F%2014d
+          # shields.io URL-encoded 空格=%20 斜杠=%2F
+
+          ESCAPED_COUNT="${TOTAL}%20%2F%2014d"
+
+          # 同时更新中英文 README
+          sed -i "s|clones-[0-9]*%20%2F%2014d|clones-${ESCAPED_COUNT}|g" README.md README.en.md
+
+          # 检查是否有变化
+          if git diff --quiet README.md README.en.md; then
+            echo "No changes — badge count unchanged."
+          else
+            echo "Badge updated: ${TOTAL} / 14d"
+          fi
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet README.md README.en.md; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git add README.md README.en.md
+          git commit -m "chore: update clones badge [skip ci]"
+          git push
