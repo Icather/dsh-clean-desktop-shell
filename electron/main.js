@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig, DEFAULT_TARGET_URL } from './config.js'
-import { detect, getAuthenticatedUrl } from './service.js'
+import { detect, getAuthenticatedUrl, getStatus } from './service.js'
 import { setupAutoUpdater } from './update.js'
 import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut, ensureStartMenuShortcut } from './shortcut.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
@@ -71,8 +71,21 @@ if (!gotLock) {
   async function createWindow() {
     const config = loadConfig()
     const target = config.targetUrl || DEFAULT_TARGET_URL
+    // In plugin mode the host half (same dsh web process) supplies the real
+    // per-process launch URL through DSH_WEB_LAUNCH_URL. In tray-start mode
+    // service.start() will surface a fresh one through status changes.
+    // Only apply BrowserAuth bootstrap to the local default; remote targets
+    // remain the user's own externally-managed surface.
+    let isLocalDefault = false
+    try {
+      isLocalDefault = new URL(target).origin === new URL(DEFAULT_TARGET_URL).origin
+    } catch {
+      // A malformed configured target must not break window creation, and it
+      // must never receive the local launch credential — stay non-local.
+    }
+    const launchUrl = isLocalDefault ? (getStatus().launchUrl || null) : null
 
-    mainWindow = createMainWindow({ target })
+    mainWindow = createMainWindow({ target, launchUrl })
     mainWindow.on('closed', () => {
       mainWindow = null
     })

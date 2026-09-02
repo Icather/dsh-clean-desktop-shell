@@ -11,7 +11,7 @@ Does exactly one thing: wraps your already-configured DSH Web in a clean native 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6?logo=windows&logoColor=white)](https://github.com/Icather/dsh-clean-desktop-shell)
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
-[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 [![npm downloads](https://img.shields.io/npm/dt/dsh-clean-desktop-shell?logo=npm&color=cb3837&label=npm%20downloads)](https://www.npmjs.com/package/dsh-clean-desktop-shell)
 [![Installs](https://img.shields.io/github/downloads/Icather/dsh-clean-desktop-shell/total?logo=github&color=2ea043&label=installs)](https://github.com/Icather/dsh-clean-desktop-shell/releases)
@@ -30,7 +30,7 @@ Key differences from other desktop clients in the ecosystem:
 | **Form** | Standalone Electron app with its own profile | **DSH plugin** mounted into your existing profile |
 | **Profile** | New `desktop` profile, plugins/config must be reinstalled | **Reuses your web profile**, zero migration |
 | **Visual changes** | Custom title bar / frosted glass etc. | **None** — pure window shell |
-| **Upstream** | Pinned version | **Tracks 0.1.1-rc.2** |
+| **Upstream** | Pinned version | **Adapted to DSH 0.1.2 BrowserAuth** (auto-auth on cold start; never takes over or kills an external backend) |
 
 ## Highlights
 
@@ -230,6 +230,11 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
 ## Changelog
+
+### 0.1.11
+- DSH 0.1.2 BrowserAuth compatibility: on plugin cold start the host defers-injects the Connection service and, after the Loader tree settles, mints this process's launch URL for Electron — first entry completes the `?token=` → Cookie exchange automatically, no manual backend restart.
+- Fixed a startup race: the backend port answers (4xx) before Loader settlement, so the offline screen's reconnect probe no longer loads the bare URL first and loses the token bootstrap.
+- Electron-managed backend (start / restart) keeps the stdout launch-URL bootstrap; an externally running backend is never restarted or killed on its own.
 
 ### 0.1.10
 - Version comparison now uses semver (`semver.coerce` + `semver.gt`) — the industry standard — replacing the hand-rolled tuple parser.

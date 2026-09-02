@@ -26,20 +26,56 @@ let launched = false
 export function apply(ctx) {
   ctx.logger.info('[clean-desktop-shell] mounted (host half)')
   if (!AUTO_LAUNCH) return
-  // The dsh bundle loader calls apply() during early boot, but the cordis
-  // 'ready' event never fires for bundle plugins (dshmarket / agent-teams
-  // use ctx.inject or run inline instead). Launch directly: the shell is a
-  // separate process with its own offline screen + auto-reconnect, so an
-  // early launch is safe — it shows the offline page until 3080 answers.
-  ;(async () => {
-    try {
-      const exe = await ensureRuntime(ctx)
+
+  // Runtime preparation is independent of authentication — start it now, but
+  // defer the Electron spawn until the launch URL is minted below.
+  let runtimeExe = null
+  const runtimeReady = ensureRuntime(ctx)
+    .then(async (exe) => {
+      runtimeExe = exe
       await patchExeIcon(ctx, exe).catch(() => {})
-      launchShell(exe, ctx)
-    } catch (err) {
+    })
+    .catch((err) => {
       reportLaunchFailure(ctx, err)
+    })
+
+  // DSH 0.1.2 BrowserAuth: the shell must not start on bare "/" (401). It
+  // needs this process's launch URL (?token=…), which the Connection service
+  // alone can mint. The service is only reachable from a deferred inject
+  // scope — reading ctx.connection in apply() throws "cannot get property
+  // without inject" — and the URL is a readiness signal: mint it only after
+  // the Loader tree settles, because the port answers 4xx before settlement.
+  // Mirror @deepseek-ai/dsh-web-app's announce pattern.
+  ctx.inject(['connection'], (connectionCtx) => {
+    const launch = () => {
+      if (launched) return
+      // Only injected services are directly reachable in this scope; the
+      // webServer sibling is read through get() (see web-app: it may declare
+      // webServer in its row inject, this host does not).
+      const webServer = connectionCtx.get('webServer')
+      if (!webServer) return
+      try {
+        const webUrl = `http://127.0.0.1:${String(webServer.port)}`
+        const launchUrl = connectionCtx.connection.authenticatedUrl(webUrl)
+        void runtimeReady.then(() => {
+          if (runtimeExe) launchShell(runtimeExe, connectionCtx, launchUrl)
+        })
+      } catch (err) {
+        reportLaunchFailure(connectionCtx, err)
+      }
     }
-  })()
+    // This row's own activation can precede a sibling failure. The tree owns
+    // readiness: await the Loader, then re-check that the services still
+    // exist — an early shutdown must not spawn a shell for a dead server.
+    const settled = connectionCtx.get('loader')?.await()
+    if (settled === undefined) launch()
+    else {
+      void settled.then(() => {
+        if (connectionCtx.get('webServer') !== undefined
+          && connectionCtx.get('connection') !== undefined) launch()
+      }, () => {})
+    }
+  })
 }
 
 /**
@@ -81,11 +117,13 @@ function reportLaunchFailure(ctx, err) {
   }
 }
 
-function launchShell(exe, ctx) {
+function launchShell(exe, ctx, launchUrl) {
   if (launched) return
+  const env = { ...process.env, ELECTRON_RUN_AS_NODE: undefined }
+  if (launchUrl) env.DSH_WEB_LAUNCH_URL = launchUrl
   const child = spawn(exe, [MAIN_JS], {
     cwd: PKG_ROOT,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
+    env,
     stdio: 'ignore',
     windowsHide: false,
   })
