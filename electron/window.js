@@ -19,7 +19,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { probe, onStatusChange, detect, getAuthenticatedUrl } from './service.js'
+import { probe, onStatusChange, detect, getStatus } from './service.js'
 import { startBackendWithProgress, chooseBackendFolder } from './tray.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
 
@@ -66,6 +66,22 @@ const reconnectTimers = new Map()
 const watchTimers = new Map()
 const windowTargets = new Map()
 const statusUnsubs = new Map()
+// Pending launch URL for this window. It exists only until DSH exchanges the
+// ?token= for the HttpOnly cookie and 303s back to clean "/", then it is
+// cleared so normal reloads/reconnects use the bare canonical target.
+const windowLaunchUrls = new Map()
+
+/** The URL this window should load right now (launch bootstrap first, then clean target). */
+function urlToLoad(win) {
+  const pending = windowLaunchUrls.get(win.id)
+  if (pending) return pending
+  return windowTargets.get(win.id)
+}
+
+/** Mark a launch bootstrap as consumed once we land on a clean target URL. */
+function clearLaunchUrl(win) {
+  if (windowLaunchUrls.has(win.id)) windowLaunchUrls.set(win.id, null)
+}
 
 // Manual reload requests come from the tray button and from the offline
 // screen's retry button (via preload -> ipcRenderer). Route them to the
@@ -101,10 +117,16 @@ function startReconnect(win, target) {
       stopReconnect(win)
       return
     }
+    // While the shell itself is starting the backend, the status machine
+    // owns the flip: the port can answer (4xx) before the CLI prints its
+    // launch-URL ready line, and probing early would load the bare target
+    // and lose the ?token= bootstrap. Wait for service.start() to deliver
+    // running + launchUrl instead.
+    if ((await getStatus()).status === 'starting') return
     const up = await probe(target)
     if (up) {
       stopReconnect(win)
-      win.webContents.loadURL(target).catch(() => startReconnect(win, target))
+      win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
     }
   }, RECONNECT_INTERVAL_MS)
   reconnectTimers.set(win.id, timer)
@@ -155,19 +177,19 @@ function showOnline(win) {
   const target = windowTargets.get(win.id)
   if (!target) return
   stopReconnect(win)
-  win.webContents.loadURL(target).catch(() => startReconnect(win, target))
+  win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
 }
 
 /** Load the real target URL in a window (used by tray + offline retry). */
 export function reloadWindow(win, target) {
   if (!win || win.isDestroyed()) return
   stopReconnect(win)
-  win.webContents.loadURL(target).catch(() => startReconnect(win, target))
+  win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
 }
 
 // ---------- window creation ----------
 
-export function createMainWindow({ target }) {
+export function createMainWindow({ target, launchUrl }) {
   const platform = process.platform
   const isWin = platform === 'win32'
   const isMac = platform === 'darwin'
@@ -225,31 +247,32 @@ export function createMainWindow({ target }) {
     })
   }
   windowTargets.set(win.id, target)
-  win.loadURL(target).catch(() => startReconnect(win, target))
+  windowLaunchUrls.set(win.id, launchUrl || null)
+  win.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
 
   // Instant flip when the backend state machine changes (tray stop/start).
   const unsub = onStatusChange((st) => {
     if (win.isDestroyed()) return
     const isOffline = win.webContents.getURL().startsWith(ERROR_PAGE_URL)
-    if ((st.status === 'stopped' || st.status === 'error') && !isOffline) {
-      // Backend went down while a real page is showing — go dark at once.
-      showOffline(win)
+    if (st.status === 'stopped' || st.status === 'error') {
+      // The old process token died with the backend. Drop it so a later
+      // reconnect cannot replay a stale launch URL.
+      windowLaunchUrls.set(win.id, null)
+      if (!isOffline) showOffline(win)
     } else if (st.status === 'running') {
-      // A shell-started dsh 0.1.2+ backend printed a fresh launch-token URL;
-      // adopt it (in memory only) whenever it differs from what we last
-      // loaded. The token rotates on every backend restart, so a stale
-      // tokened target 401s — this is what keeps restarts working without
-      // asking the user to touch config.json.
-      const fresh = getAuthenticatedUrl() || target
-      const changed = fresh !== windowTargets.get(win.id)
-      if (changed) {
-        windowTargets.set(win.id, fresh)
-        stopReconnect(win)
-      }
+      // A freshly started dsh web brings a fresh per-process launch URL —
+      // printed on its banner, or handed over by the DSH host half in plugin
+      // mode. Adopt it so the window re-bootstraps when the previous HttpOnly
+      // cookie is gone or the previous process token is stale.
+      const fresh = st.launchUrl || null
+      const changed = fresh !== null && fresh !== windowLaunchUrls.get(win.id)
+      if (fresh !== null) windowLaunchUrls.set(win.id, fresh)
       if (isOffline) {
-        showOnline(win) // loads the (possibly updated) windowTargets entry
+        // Backend came up while we are on the offline screen — load it.
+        showOnline(win)
       } else if (changed) {
-        reloadWindow(win, fresh)
+        // The backend was replaced without the window ever going offline.
+        reloadWindow(win, target)
       }
     }
   })
@@ -270,9 +293,23 @@ export function createMainWindow({ target }) {
   win.webContents.on('did-finish-load', () => {
     const current = win.webContents.getURL()
     const active = windowTargets.get(win.id) || target
+    // Compare by origin (scheme + host + port), ignoring path/query: the launch
+    // token in the target is dropped by the 303 redirect, so a plain prefix
+    // match would reject a load that actually succeeded and authenticated.
     if (sameOrigin(current, active)) {
-      // Real backend page reached — stop re-probing and watch it. Compared by
-      // origin: the launch token in the target is dropped by the 303 redirect.
+      // Once DSH redirects the launch URL back to clean "/", the token has done
+      // its job. Future loads use the canonical target instead of replaying a
+      // one-time credential.
+      if (windowLaunchUrls.get(win.id)) {
+        let clean = false
+        try {
+          clean = !new URL(current).searchParams.has('token')
+        } catch {
+          clean = !current.includes('?token=')
+        }
+        if (clean) clearLaunchUrl(win)
+      }
+      // Real backend page reached — stop re-probing and watch it.
       stopReconnect(win)
       startWatch(win, active)
     }
@@ -287,6 +324,7 @@ export function createMainWindow({ target }) {
       statusUnsubs.delete(win.id)
     }
     windowTargets.delete(win.id)
+    windowLaunchUrls.delete(win.id)
   })
 
   return win

@@ -35,16 +35,24 @@ let lastError = null
 let startResolver = null
 
 // dsh 0.1.2+ gates the web index behind a per-process launch token: the
-// startup line now reads `dsh web: http://127.0.0.1:3080/?token=…`, and a
-// loopback GET without that token (or the session cookie it mints) is
-// rejected with 401. Keep the FULL printed URL so the window can load
-// authenticated. Memory-only by design — the token rotates on every backend
-// restart and must never be persisted to config.
-let authenticatedUrl = null
+// startup line reads `dsh web: http://127.0.0.1:3080/?token=…`, and a loopback
+// GET without that token (or the session cookie it mints) is answered 401, so
+// the window used to come up blank. Two independent sources feed this state:
+//
+//   1. DSH_WEB_LAUNCH_URL — set by the DSH host half when the shell is launched
+//      from inside `dsh web` (plugin mode). This is the only way to reach the
+//      token of a backend this shell did not start, and it is why the plugin
+//      form works at all.
+//   2. the ready banner printed by a backend this shell started itself.
+//
+// In-memory only: the launch URL is a per-process bootstrap secret, it rotates
+// on every backend start, and it must never be persisted to config or disk.
+const envLaunchUrl = process.env.DSH_WEB_LAUNCH_URL
+let currentLaunchUrl = envLaunchUrl && /^https?:\/\//i.test(envLaunchUrl) ? envLaunchUrl : null
 
-/** The authenticated root URL captured from the last shell-started backend. */
+/** The launch URL of the backend this shell is bound to, or null. */
 export function getAuthenticatedUrl() {
-  return authenticatedUrl
+  return currentLaunchUrl
 }
 
 // Status-change listeners (tray menu auto-refresh, window auto-reload, ...).
@@ -75,21 +83,39 @@ export function getStatus() {
     status: currentStatus,
     port: DEFAULT_PORT,
     url: LOCAL_URL,
+    launchUrl: currentLaunchUrl,
     error: lastError,
     pid: child?.pid ?? null,
   }
 }
 
-/** Simple HTTP probe — true when something responds on the port. */
-export async function probe(url, timeoutMs = 1500) {
+/**
+ * HTTP probe that separates “something is listening” from “the web UI is
+ * authenticated/ready”. A bare 401 means the backend is alive but the shell
+ * still needs a launch-URL bootstrap, not that the real page is usable.
+ */
+export async function probeState(url, timeoutMs = 1500) {
   try {
     // AbortSignal.timeout is the standard self-cleaning timeout — no manual
     // controller/timer pair to leak when fetch rejects first.
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' })
-    return res.status < 500
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' })
+    return {
+      alive: res.status < 500,
+      authenticated: res.status !== 401,
+      status: res.status,
+    }
   } catch {
-    return false
+    return {
+      alive: false,
+      authenticated: false,
+      status: null,
+    }
   }
+}
+
+/** Simple HTTP probe — true when something responds on the port. */
+export async function probe(url, timeoutMs = 1500) {
+  return (await probeState(url, timeoutMs)).alive
 }
 
 /**
@@ -98,11 +124,14 @@ export async function probe(url, timeoutMs = 1500) {
  * or null when the backend is down.
  */
 export async function detect() {
-  const up = await probe(LOCAL_URL)
-  if (up) {
+  const state = await probeState(LOCAL_URL)
+  if (state.alive) {
     setStatus('running')
     return LOCAL_URL
   }
+  // The old process token (if any) belongs to a backend that is no longer
+  // listening. Keep it out of the next backend's bootstrap.
+  currentLaunchUrl = null
   setStatus('stopped')
   return null
 }
@@ -112,13 +141,15 @@ export async function detect() {
  * (or a spawned CLI prints its ready line). Throws on failure.
  */
 export async function start({ backendPath } = {}) {
-  // Already up? An externally-started backend printed its launch token where
-  // we cannot see it — the shell cannot authenticate by itself in that case.
+  // Already up? Two very different situations hide behind this:
+  //  - plugin mode: the DSH host half started this very backend and handed us
+  //    its launch URL through DSH_WEB_LAUNCH_URL — that credential is still
+  //    valid, so it must survive here (only detect() clears it, and only when
+  //    nothing answers on the port at all).
+  //  - a backend started outside the shell: its banner went to someone else's
+  //    terminal, so we simply have no token for it.
   const up = await detect()
-  if (up) {
-    authenticatedUrl = null
-    return up
-  }
+  if (up) return up
 
   // Backend path: explicit config → common locations → PATH.
   const resolved = await resolveDshCommand(backendPath)
@@ -161,7 +192,7 @@ export async function start({ backendPath } = {}) {
 
   child.on('exit', (code) => {
     child = null
-    authenticatedUrl = null
+    currentLaunchUrl = null
     if (currentStatus === 'starting' && startResolver) {
       const r = startResolver
       startResolver = null
@@ -195,17 +226,25 @@ export async function start({ backendPath } = {}) {
 
     const onData = () => {
       const text = stdout + stderr
-      // Capture the full printed root URL including any query (dsh 0.1.2+
-      // carries its one-time launch token there). The optional tail keeps
-      // pre-0.1.2 bare `http://127.0.0.1:<port>` lines working unchanged.
-      const m = text.match(/http:\/\/127\.0\.0\.1:\d+(?:\/[^\s"')]*[^\s"')]?)?/)
-      if (m && startResolver) {
+      // Preferred: the exact `dsh web: http://127.0.0.1:<port>/?token=…`
+      // banner. Anchoring on the banner and requiring the token means we only
+      // ever adopt a credential the backend actually handed us, and only from
+      // loopback — a launch token is a local-process secret and must never be
+      // taken from a remote host or from an unrelated line in the buffer.
+      const tokened = text.match(/dsh web:\s+(https?:\/\/127\.0\.0\.1:\d+\/\?token=[^\s]+)/)
+      // Fallback for pre-0.1.2 backends, which print a bare loopback URL and
+      // need no credential at all: keep the full printed URL (query tail
+      // optional) so those still go ready the moment the line appears instead
+      // of waiting out the 45s startup timeout.
+      const bare = tokened ? null : text.match(/http:\/\/127\.0\.0\.1:\d+(?:\/[^\s"')]*[^\s"')]?)?/)
+      const url = tokened ? tokened[1] : bare && bare[0]
+      if (url && startResolver) {
         clearTimeout(timer)
         const r = startResolver
         startResolver = null
-        authenticatedUrl = m[0]
+        currentLaunchUrl = url
         setStatus('running')
-        r.resolve(authenticatedUrl)
+        r.resolve(url)
       }
     }
     child.stdout.on('data', (d) => {
@@ -229,7 +268,9 @@ export async function start({ backendPath } = {}) {
  *   it looks like a node-based backend, never an unrelated program.
  */
 export async function stop() {
-  authenticatedUrl = null
+  // Any process launch token dies with its backend. Do not carry it into a
+  // future process (DSH regenerates the token on every `dsh web` start).
+  currentLaunchUrl = null
   if (child) {
     const proc = child
     child = null

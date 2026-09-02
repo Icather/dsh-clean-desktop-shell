@@ -11,7 +11,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D6?logo=windows&logoColor=white)](https://github.com/Icather/dsh-clean-desktop-shell)
 [![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Icather/dsh-clean-desktop-shell?color=blue)](https://github.com/Icather/dsh-clean-desktop-shell/releases/latest)
-[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.1--rc.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DeepSeek_Harness-0.1.2-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Contributors](https://img.shields.io/github/contributors/Icather/dsh-clean-desktop-shell?color=blueviolet)](https://github.com/Icather/dsh-clean-desktop-shell/graphs/contributors)
 [![npm downloads](https://img.shields.io/npm/dt/dsh-clean-desktop-shell?logo=npm&color=cb3837&label=npm%20downloads)](https://www.npmjs.com/package/dsh-clean-desktop-shell)
 [![Installs](https://img.shields.io/github/downloads/Icather/dsh-clean-desktop-shell/total?logo=github&color=2ea043&label=installs)](https://github.com/Icather/dsh-clean-desktop-shell/releases)
@@ -30,7 +30,7 @@
 | **形态** | 独立 Electron 应用，自带独立 profile | **DSH 插件**，挂载进现有 profile |
 | **Profile** | 新建 desktop profile，插件/配置要重装 | **复用现有 web profile**，零迁移 |
 | **视觉改造** | 自绘标题栏 / 毛玻璃等 | **零改造**，纯净窗口壳 |
-| **跟随上游** | 固定版本 | **跟随 0.1.1-rc.2** |
+| **跟随上游** | 固定版本 | **已适配 DSH 0.1.2 BrowserAuth**（冷启动自动认证；不接管、不杀外部后端） |
 
 ## 核心亮点
 
@@ -211,6 +211,11 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 ```
 
 ## 更新历史
+
+### 0.1.11
+- 适配 DSH 0.1.2 BrowserAuth：插件冷启动时由 host 延迟注入 Connection 服务、等 Loader settle 后铸造本进程 launch URL 交给 Electron，首次进入自动完成 `?token=` → Cookie 认证，无需手动重启后端。
+- 修复启动竞态：后端端口在 Loader settle 前即开始应答（4xx），离线页重连探针不再抢先加载裸 URL 而丢掉 token bootstrap。
+- Electron 自管后端（启动 / 重启）沿用 stdout launch URL bootstrap；外部已运行的 backend 不会被擅自重启或杀掉。
 
 ### 0.1.10
 - 版本比较改用 semver（industry-standard `semver.coerce` + `semver.gt`），替换手写元组比较。
