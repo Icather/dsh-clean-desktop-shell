@@ -58,6 +58,37 @@ const ERROR_PAGE_URL = pathToFileURL(ERROR_PAGE).href
 const RECONNECT_INTERVAL_MS = 2500
 // How often we check the backend is still alive while the page is shown.
 const WATCH_INTERVAL_MS = 4000
+
+// Top drag-strip geometry. Must mirror the strip the preload injects
+// (preload.js: dragHeight 32 on Windows, 28 elsewhere) — the strip swallows
+// pointer events over the top band, so dockable panels must be told how many
+// pixels to yield. better-sidebar reads this through its documented shell
+// contract: `dsh-desktop-titlebar-inset` on the render URL.
+function isWin() {
+  return process.platform === 'win32'
+}
+
+const TITLEBAR_INSET_PX = isWin() ? 32 : 28
+
+/**
+ * Stamp the shell contract onto a page URL: declares this shell frameless
+ * (advanced), its platform, and the exact top pixels the drag strip
+ * reserves. Dockable panels (better-sidebar) move their top chrome below
+ * the strip; plain browsers never see these params.
+ */
+function stampTarget(target) {
+  try {
+    const url = new URL(target)
+    url.searchParams.set('dsh-desktop-mode', 'advanced')
+    url.searchParams.set('dsh-desktop-platform', process.platform)
+    url.searchParams.set('dsh-desktop-titlebar-inset', String(TITLEBAR_INSET_PX))
+    return url.href
+  } catch {
+    // Not a parseable URL (custom scheme etc.) — load it untouched.
+    return target
+  }
+}
+
 // ERR_ABORTED — navigation was cancelled, not a real failure. Ignore it.
 const ERR_ABORTED = -3
 
@@ -70,12 +101,17 @@ const statusUnsubs = new Map()
 // ?token= for the HttpOnly cookie and 303s back to clean "/", then it is
 // cleared so normal reloads/reconnects use the bare canonical target.
 const windowLaunchUrls = new Map()
+// One-shot re-stamp guard per window: after the token exchange DSH redirects
+// to clean "/", dropping the shell contract params, so the stamped target is
+// loaded once more.
+const restampedWindows = new Set()
 
 /** The URL this window should load right now (launch bootstrap first, then clean target). */
 function urlToLoad(win) {
   const pending = windowLaunchUrls.get(win.id)
   if (pending) return pending
-  return windowTargets.get(win.id)
+  const target = windowTargets.get(win.id)
+  return target ? stampTarget(target) : target
 }
 
 /** Mark a launch bootstrap as consumed once we land on a clean target URL. */
@@ -266,7 +302,12 @@ export function createMainWindow({ target, launchUrl }) {
       // cookie is gone or the previous process token is stale.
       const fresh = st.launchUrl || null
       const changed = fresh !== null && fresh !== windowLaunchUrls.get(win.id)
-      if (fresh !== null) windowLaunchUrls.set(win.id, fresh)
+      if (fresh !== null) {
+        windowLaunchUrls.set(win.id, fresh)
+        // A fresh bootstrap means a fresh 303, which will strip the shell
+        // contract params again — allow one more re-stamp for this window.
+        if (changed) restampedWindows.delete(win.id)
+      }
       if (isOffline) {
         // Backend came up while we are on the offline screen — load it.
         showOnline(win)
@@ -312,6 +353,13 @@ export function createMainWindow({ target, launchUrl }) {
       // Real backend page reached — stop re-probing and watch it.
       stopReconnect(win)
       startWatch(win, active)
+      // The token exchange 303s to clean "/", which drops the shell contract
+      // params. Re-load the stamped target once so panels relying on the
+      // contract (better-sidebar titlebar inset) see it from the start.
+      if (!current.includes('dsh-desktop-mode=') && !restampedWindows.has(win.id)) {
+        restampedWindows.add(win.id)
+        win.webContents.loadURL(stampTarget(target)).catch(() => {})
+      }
     }
   })
 
@@ -325,6 +373,7 @@ export function createMainWindow({ target, launchUrl }) {
     }
     windowTargets.delete(win.id)
     windowLaunchUrls.delete(win.id)
+    restampedWindows.delete(win.id)
   })
 
   return win
