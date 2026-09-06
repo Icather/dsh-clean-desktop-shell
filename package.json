@@ -33,7 +33,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/check-syntax.mjs && node scripts/selftest-runtime.mjs",
+    "check": "node scripts/check-syntax.mjs && node scripts/selftest-runtime.mjs && node scripts/selftest-recovery.mjs",
     "dev": "electron electron/main.js",
     "icons": "node scripts/gen-icons.mjs",
     "pack": "electron-builder --win nsis",
@@ -45,6 +45,7 @@
     },
     "client": {
       "inject": [
+        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-settings",

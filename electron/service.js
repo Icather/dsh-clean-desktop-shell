@@ -6,6 +6,16 @@
  *  - start() / stop() / restart()
  *  - status: 'running' | 'stopped' | 'starting' | 'error'
  *
+ * Lifecycle vs responsiveness: every status carries a `cause` so consumers
+ * can tell a CONFIRMED lifecycle event from an OBSERVED state:
+ *  - cause 'exit'  — the managed child process really exited (or died while
+ *    starting);
+ *  - cause 'stop'  — an explicit tray stop terminated the backend;
+ *  - cause 'probe' — detect() found nothing answering on the port (an
+ *    observation; the backend may merely be slow or external).
+ * Only 'exit'/'stop' mean the backend that owns a loaded page is gone; a
+ * 'probe'-derived 'stopped' must never be treated as a process exit.
+ *
  * Shell/core decoupling: when a remote target URL is configured, no local
  * backend is ever touched — this module only manages the local dsh CLI.
  */
@@ -32,6 +42,7 @@ function cappedAppend(prev, chunk) {
 let child = null
 let currentStatus = 'stopped'
 let lastError = null
+let currentCause = null
 let startResolver = null
 
 // dsh 0.1.2+ gates the web index behind a per-process launch token: the
@@ -64,10 +75,14 @@ export function onStatusChange(cb) {
   return () => listeners.delete(cb)
 }
 
-function setStatus(next, error = null) {
-  if (currentStatus !== next || lastError !== error) {
+function setStatus(next, error = null, cause = null) {
+  // A same-status re-emission with a different cause (e.g. probe-derived
+  // 'stopped' followed by the real child exit) must still notify — the
+  // cause is what upgrades an observation to a confirmed lifecycle event.
+  if (currentStatus !== next || lastError !== error || currentCause !== cause) {
     currentStatus = next
     lastError = error
+    currentCause = cause
     for (const cb of listeners) {
       try {
         cb(getStatus())
@@ -81,6 +96,7 @@ function setStatus(next, error = null) {
 export function getStatus() {
   return {
     status: currentStatus,
+    cause: currentCause,
     port: DEFAULT_PORT,
     url: LOCAL_URL,
     launchUrl: currentLaunchUrl,
@@ -122,17 +138,30 @@ export async function probe(url, timeoutMs = 1500) {
  * Detect a reachable local dsh web service.
  * Returns the URL when something already listens on the port,
  * or null when the backend is down.
+ *
+ * Never demotes a shell-managed child: while one is alive, reachability is
+ * the liveness watch's job (window.js probes), so a transient probe failure
+ * here cannot corrupt lifecycle state. The status is likewise never
+ * promoted here — during 'starting' the launch URL is not minted yet, and
+ * only the ready line (or the start-timeout probe) may flip 'starting' →
+ * 'running'. Unmanaged results are observations and are reported with
+ * cause 'probe' — not confirmed exits.
  */
 export async function detect() {
+  if (child && child.exitCode === null) {
+    // Managed child alive — lifecycle state owns itself; no probe, no
+    // status change (in particular: no promotion out of 'starting').
+    return LOCAL_URL
+  }
   const state = await probeState(LOCAL_URL)
   if (state.alive) {
-    setStatus('running')
+    setStatus('running', null, 'probe')
     return LOCAL_URL
   }
   // The old process token (if any) belongs to a backend that is no longer
   // listening. Keep it out of the next backend's bootstrap.
   currentLaunchUrl = null
-  setStatus('stopped')
+  setStatus('stopped', null, 'probe')
   return null
 }
 
@@ -196,10 +225,14 @@ export async function start({ backendPath } = {}) {
     if (currentStatus === 'starting' && startResolver) {
       const r = startResolver
       startResolver = null
-      setStatus('error', `dsh 后端异常退出 (code ${code})`)
+      setStatus('error', `dsh 后端异常退出 (code ${code})`, 'exit')
       r.reject(new Error(lastError))
-    } else if (currentStatus !== 'stopped') {
-      setStatus('stopped')
+    } else {
+      // Confirmed lifecycle exit. Always (re)emit with cause 'exit' — when a
+      // probe-derived 'stopped' preceded the real exit, the cause upgrade is
+      // what tells listeners this was a genuine process death, not an
+      // observation.
+      setStatus('stopped', null, 'exit')
     }
   })
 
@@ -274,7 +307,9 @@ export async function stop() {
   if (child) {
     const proc = child
     child = null
-    setStatus('stopped')
+    // Intentional lifecycle stop of the managed child — a confirmed exit
+    // (cause 'stop'), unlike an observed unreachability.
+    setStatus('stopped', null, 'stop')
     await terminate(proc)
     await ensurePortFree(DEFAULT_PORT)
     return
@@ -287,9 +322,12 @@ export async function stop() {
     if (name && /node/i.test(name)) {
       await killProcess(pid)
       await ensurePortFree(DEFAULT_PORT)
+      setStatus('stopped', null, 'stop')
     }
   }
-  setStatus('stopped')
+  // Nothing was terminated: no status change at all. Emitting 'stopped'
+  // here would fabricate a confirmed exit (cause 'stop') where none
+  // happened — a probe-derived 'stopped' must stay an observation.
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
