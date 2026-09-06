@@ -46,28 +46,31 @@ No terminal, no commands. **Double-click the desktop shortcut and the DSH window
 
 The tray **shows the backend state in real time** (running / starting / stopped / error) with one-click controls:
 
-- **Live monitoring**: the window keeps probing the backend; the moment it is killed, crashes or is stopped, the window flips to the offline screen — a stale page never fakes "still alive"
-- **Auto-reconnect**: the instant the backend recovers, the window reloads the real page by itself
+- **Responsiveness monitoring**: the probe timeout remains 1,500 ms. A failed response is not a process exit: transient and persistent failures retain the loaded page and show a connection notice.
+- **In-page recovery**: HTTP and client-runtime state are combined, and the client's own connection service resumes synchronization without automatic reloads. Automatic retries use the existing 4-second watch; manual retries share its duplicate-request guards.
 - **Quick start/stop**: one-click start / restart / stop from the tray (with progress dialogs); "stop backend" really shuts the service down on 3080, including externally started instances
 
 ## Usage
 
 1. If the plugin is installed, launching `dsh` from the command line pops up the desktop window automatically; you can also double-click the desktop shortcut created by the plugin — on par with a native desktop app.
 2. Everything from the original web UI works as-is.
-3. Detailed settings live in the tray right-click menu. The main window adds no controls of its own, keeping the page clean.
+3. Detailed settings live in the tray right-click menu. The original page remains unchanged while connected; connection failures show a recovery notice.
 
-**All backend controls live in the tray** — the main window stays a pure shell:
+**Backend lifecycle controls live in the tray**:
 
 - Start / restart / stop the backend (with progress dialogs; stopping really shuts down the service on 3080, including externally started instances)
 - Auto-detect backend · set the backend install folder (auto-detect default)
 - Reload window · create desktop shortcut · check for updates · repo homepage
 
-**Window reliability (Edge-style instant refresh):**
+**Window reliability (non-destructive connection recovery):**
 
 - Shows immediately on launch, never waits for the backend
-- While the backend is down, a local "backend offline" screen is shown and re-probed; the real page loads automatically the moment it answers
-- The instant the backend stops (tray stop, kill or crash) the window flips back to the offline screen — a stale page never fakes "still alive"
+- When no usable page exists at startup, the local offline screen remains until backend startup is ready
+- Only a confirmed managed-child exit or an explicit stop of an identified backend switches back to the offline screen; an unreachable external backend remains a responsiveness failure
+- Persistent failures offer retry and explicit page reload; reloading can discard unsaved page state
 - The offline screen has self-service buttons: reload / start backend / auto-detect backend / set backend install folder
+
+The shell does not recreate the loaded document after probe failures, but third-party plugins may still change their own views when handling disconnection. Confirmed exits and explicit reloads still leave the current page.
 
 ## macOS status (v0.1.7 important note)
 
@@ -229,7 +232,22 @@ npm run dev     # launch the shell (dev mode)
 npm run pack    # package NSIS (Win) / DMG (mac)
 ```
 
+`npm run check` runs syntax and Node self-checks. Running `scripts/selftest-recovery.mjs` with Electron additionally checks retry after a real spawn failure, burst retries, and immediate-failure feedback; use `--user-data-dir` with a temporary directory.
+
+The following sh/bash example expects `ELECTRON` to name an already installed Electron executable. It uses isolated user-data, does not launch the daily application, and does not send a model request:
+
+```sh
+test -n "$ELECTRON" && "$ELECTRON" --user-data-dir="$(mktemp -d)" scripts/selftest-recovery.mjs
+```
+
+This entry exercises recovery boundaries using a temporary non-executable file and a local page on an ephemeral port; it is not a substitute for real-session or performance acceptance.
+
 ## Changelog
+
+### Unreleased
+- A slow backend response no longer navigates away to the offline screen: the loaded page is preserved and an in-page notice is shown, so drafts, scroll position and selection survive.
+- Probe observations are separated from confirmed exits: only a real process exit or an explicit stop counts as the backend going down, and the probe keeps its 1,500 ms timeout.
+- Real client connection state and the runtime's own reconnect action are bridged in (`shellAPI.connectionReport` / `onReconnectRequest`): a live HTTP port can no longer hide a dead page WebSocket, and manual plus automatic retries share one guard so an immediate failure cannot feed a reconnect loop.
 
 ### 0.1.12
 - **DSH 0.1.2 BrowserAuth compatibility, plugin form included**: on plugin cold start the host defers-injects the Connection service and, after the Loader tree settles, mints this process's launch URL for Electron — first entry completes the `?token=` → Cookie exchange automatically, no manual backend restart. Until now only a shell-started backend could obtain a token; the plugin form (`dsh web` auto-launching the shell) and "start `dsh web` yourself, then open the shell" both stayed on the unauthenticated page.

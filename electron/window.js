@@ -5,21 +5,30 @@
  * window-controls overlay (Win) / hiddenInset (mac), and nothing else.
  * No Mica, no vibrancy — keep it clean.
  *
- * Window reliability (Edge-style instant refresh):
+ * Window reliability (non-destructive recovery):
  *  - the window shows immediately on launch (never waits for the backend);
- *  - while the backend is unreachable the page load fails and we swap in a
- *    local "backend offline" screen;
- *  - a background poll keeps probing the target; as soon as the backend
- *    answers, the real page is loaded automatically;
- *  - the moment the backend goes down (tray stop, external kill, crash) the
- *    window flips back to the offline screen instead of showing a stale page
- *    that suggests the app is still alive.
+ *  - without a loaded session (boot, or a page load that failed) an
+ *    unreachable backend swaps in the local "backend offline" screen, which
+ *    re-probes and loads the real page automatically when it answers;
+ *  - once a real page is loaded, a failed liveness probe NEVER navigates
+ *    away: the page stays up (draft, scroll, selection intact) and an
+ *    in-page notice appears with retry/reload actions. The notice clears by
+ *    itself once BOTH health signals are clear — the HTTP probe answers AND
+ *    the page's own DSH client runtime reports 'connected' (bridged from
+ *    src/client/client.js) — so recovery syncs through the app's own
+ *    reconnect loop, never an artificial full reload;
+ *  - a confirmed backend exit (service status cause 'exit'/'stop': tray
+ *    stop, managed child crash) is the one case that still flips a loaded
+ *    page to the offline screen — visible recovery instead of a stale
+ *    "online" page. Probe-observed states (watch or detect() timeouts,
+ *    cause 'probe') are never treated as a process exit.
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { probe, onStatusChange, detect, getStatus } from './service.js'
+import { OutageRun } from './outage.js'
 import { startBackendWithProgress, chooseBackendFolder } from './tray.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
 
@@ -98,6 +107,82 @@ const reconnectTimers = new Map()
 const watchTimers = new Map()
 const windowTargets = new Map()
 const statusUnsubs = new Map()
+// Per-window backend-outage run (see outage.js): consecutive-failure
+// escalation for the notice + the navigation token that discards stale
+// probe results after a flip/navigation/disposal.
+const outageRuns = new Map()
+// Single-flight guard: at most one backend probe per window at a time,
+// shared by the watch tick, the reconnect tick and manual retries, so two
+// overlapping polls can never double-act on the same result.
+const pollInFlight = new Map()
+// Merged per-window connection state: HTTP liveness outcome (from the
+// outage run) + DSH client-runtime reports from the loaded page (client
+// half, src/client/client.js). The notice reflects BOTH — an HTTP success
+// must never hide a known terminal disconnect of the page's own connection.
+//   http: last committed probe payload ({state:'ok'|'degraded',…}) or null
+//   client: 'connected'|'connecting'|'disconnected', or null until the
+//           page runtime's first report (bridge forward of the initial
+//           snapshot covers the disconnect-before-first-probe case)
+//   reconnectPending: a shell-requested client reconnect is outstanding
+//           (cleared when the runtime reports connecting/connected)
+const connStates = new Map()
+
+/** Fresh merged state for a window that (re)loaded a page. */
+function resetConn(win) {
+  connStates.set(win.id, { http: null, client: null, reconnectPending: false })
+}
+
+function connStateOf(win) {
+  let st = connStates.get(win.id)
+  if (!st) {
+    st = { http: null, client: null, reconnectPending: false }
+    connStates.set(win.id, st)
+  }
+  return st
+}
+
+/**
+ * Recompute what the in-page notice should show from the merged state and
+ * push it to the renderer. The notice is visible whenever the page's own
+ * connection is known bad (client 'connecting'/'disconnected') OR the last
+ * HTTP probe failed; it hides only when both are clear. The persistent copy
+ * (stronger copy + reload action) is offered for anything terminal — a
+ * long HTTP outage OR the client runtime sitting in 'disconnected' — but
+ * not for 'connecting', where an automatic retry attempt is already in
+ * progress and must not be interrupted or escalated.
+ */
+function refreshNotice(win) {
+  if (win.isDestroyed()) return
+  const st = connStateOf(win)
+  const httpOk = !st.http || st.http.state === 'ok'
+  const clientBad = st.client === 'connecting' || st.client === 'disconnected'
+  let payload
+  if (!clientBad && httpOk) {
+    payload = { state: 'ok' }
+  } else {
+    payload = {
+      state: 'degraded',
+      persistent:
+        st.client === 'disconnected'
+        || !!(st.http && st.http.state !== 'ok' && st.http.persistent),
+    }
+  }
+  win.webContents.send('shell:connection-state', payload)
+}
+
+/**
+ * Ask the loaded page's DSH client runtime to reconnect through its own
+ * reconnect loop (shell:client-reconnect → preload → client.js →
+ * ctx.connection.reconnect()). Never sent while the runtime already
+ * reports 'connecting' (an attempt is in progress) and never repeated per
+ * watch tick while an earlier request is still outstanding.
+ */
+function requestClientReconnect(win) {
+  const st = connStateOf(win)
+  if (st.reconnectPending || st.client === 'connecting') return
+  st.reconnectPending = true
+  win.webContents.send('shell:client-reconnect')
+}
 // Pending launch URL for this window. It exists only until DSH exchanges the
 // ?token= for the HttpOnly cookie and 303s back to clean "/", then it is
 // cleared so normal reloads/reconnects use the bare canonical target.
@@ -120,6 +205,27 @@ function clearLaunchUrl(win) {
   if (windowLaunchUrls.has(win.id)) windowLaunchUrls.set(win.id, null)
 }
 
+/** The outage run of this window (created lazily on first use). */
+function runFor(win) {
+  let run = outageRuns.get(win.id)
+  if (!run) {
+    run = new OutageRun()
+    outageRuns.set(win.id, run)
+  }
+  return run
+}
+
+/**
+ * The window is about to navigate (flip, reload, reconnect success):
+ * invalidate every in-flight probe of this window and start fresh outage +
+ * merged-connection state, so stale results can never act on the newer
+ * navigation.
+ */
+function bumpNav(win) {
+  runFor(win).reset()
+  resetConn(win)
+}
+
 // Manual reload requests come from the tray button and from the offline
 // screen's retry button (via preload -> ipcRenderer). Route them to the
 // window that sent the message.
@@ -130,12 +236,106 @@ ipcMain.on('shell:reload', (event) => {
   }
 })
 
+// Manual retries share the same probe and reconnect guards as the watch.
+// A reachable backend may need a fresh client generation even if the page
+// has not yet reported its old connection as disconnected.
+ipcMain.on('shell:retry-connection', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win && !win.isDestroyed()) {
+    const target = windowTargets.get(win.id)
+    checkBackend(win, target, true)
+  }
+})
+
+// The loaded page's DSH client runtime reports its own connection lifecycle
+// (client.js → shellAPI.connectionReport). Terminal disconnect of the page
+// connection is invisible to HTTP probes — merge it into the notice state.
+ipcMain.on('shell:client-connection', (event, state) => {
+  if (state !== 'connected' && state !== 'connecting' && state !== 'disconnected') return
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (!win || win.isDestroyed()) return
+  // Only reports from the loaded real page count; the offline screen has no
+  // client runtime and stale frames after navigation must not act.
+  const target = windowTargets.get(win.id)
+  if (!target || !win.webContents.getURL().startsWith(target)) return
+  const st = connStateOf(win)
+  st.client = state
+  // A request is outstanding only while the runtime stays 'disconnected':
+  // 'connecting' means an attempt is in progress, 'connected' means done.
+  if (state !== 'disconnected') st.reconnectPending = false
+  refreshNotice(win)
+  // Automatic retries are paced by checkBackend, not by failure feedback.
+})
+
 // Offline-screen quick actions: start / detect backend, pick install
 // folder. The resulting state changes propagate via onStatusChange
 // (window flip + tray refresh), so no extra wiring is needed here.
 ipcMain.on('shell:start-backend', () => startBackendWithProgress())
 ipcMain.on('shell:detect-backend', () => detect())
 ipcMain.on('shell:choose-backend-folder', () => chooseBackendFolder())
+
+// ---------- backend probing (shared by reconnect + watch + manual retry) ----------
+
+/**
+ * Run one guarded backend probe for this window.
+ *
+ * `commit` true (liveness watch / manual retry): the result advances the
+ * window's outage run and returns the renderer notice payload
+ * ({state:'ok'} / {state:'degraded', persistent}) — or null when skipped
+ * (another poll already in flight) or stale (run reset because the window
+ * navigated or was disposed while the probe was in flight).
+ *
+ * `commit` false (offline reconnect): returns the bare probe result
+ * (true/false) or null for the same skip/stale cases, without touching the
+ * outage run.
+ *
+ * Timeout stays at 1500ms — the same value as the service.js probe default.
+ */
+async function guardedProbe(win, target, commit = false) {
+  if (win.isDestroyed() || pollInFlight.get(win.id)) return null
+  const run = runFor(win)
+  const token = run.checkpoint()
+  pollInFlight.set(win.id, true)
+  let up = false
+  try {
+    up = await probe(target, 1500)
+  } finally {
+    pollInFlight.delete(win.id)
+  }
+  if (win.isDestroyed()) return null
+  return commit ? run.apply(token, up) : run.isCurrent(token) ? up : null
+}
+
+/**
+ * Probe the backend while the real page is shown and record the outcome
+ * into the merged per-window connection state (refreshNotice then decides
+ * the notice — HTTP and client-runtime signals combined). Never navigates:
+ * a failed probe keeps the loaded page (draft, scroll, selection) and only
+ * escalates the notice copy after consecutive failures (OutageRun). The
+ * offline screen is reached exclusively via confirmed lifecycle exits
+ * (service status cause 'exit'/'stop') or boot without a loaded page.
+ */
+async function checkBackend(win, target, forceReconnect = false) {
+  if (win.isDestroyed() || !target) return
+  const outcome = await guardedProbe(win, target, true)
+  if (!outcome) return
+  // Only the loaded real page carries the notice overlay; the offline screen
+  // has its own copy and mid-navigation pages must not get a stray message.
+  if (!win.webContents.getURL().startsWith(target)) {
+    // Page left the target (navigation in progress / other origin) — when it
+    // comes back, outage + connection state start fresh.
+    bumpNav(win)
+    return
+  }
+  const st = connStateOf(win)
+  st.http = outcome
+  refreshNotice(win)
+  // Retry only after a fresh successful probe. An immediately failing
+  // client generation must not feed back into another immediate attempt.
+  if (outcome.state === 'ok' && (forceReconnect || st.client === 'disconnected')) {
+    requestClientReconnect(win)
+  }
+}
 
 // ---------- offline mode ----------
 
@@ -160,9 +360,13 @@ function startReconnect(win, target) {
     // and lose the ?token= bootstrap. Wait for service.start() to deliver
     // running + launchUrl instead.
     if ((await getStatus()).status === 'starting') return
-    const up = await probe(target)
+    const up = await guardedProbe(win, target)
+    if (up === null) return
     if (up) {
       stopReconnect(win)
+      // Navigating away from the offline screen — invalidate any probe that
+      // started before this moment so it cannot race the navigation.
+      bumpNav(win)
       win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
     }
   }, RECONNECT_INTERVAL_MS)
@@ -182,17 +386,12 @@ function stopWatch(win) {
 /** While the real page is shown, watch that the backend stays alive. */
 function startWatch(win, target) {
   if (watchTimers.has(win.id)) return
-  const timer = setInterval(async () => {
+  const timer = setInterval(() => {
     if (win.isDestroyed()) {
       stopWatch(win)
       return
     }
-    const up = await probe(target, 1500)
-    if (!up) {
-      // Backend vanished — flip to the offline screen immediately so the
-      // stale page cannot fool the user into thinking the app is alive.
-      showOffline(win)
-    }
+    checkBackend(win, target)
   }, WATCH_INTERVAL_MS)
   watchTimers.set(win.id, timer)
 }
@@ -204,6 +403,7 @@ function showOffline(win) {
   if (win.isDestroyed()) return
   const target = windowTargets.get(win.id)
   stopWatch(win)
+  bumpNav(win)
   win.loadFile(ERROR_PAGE).catch(() => {})
   if (target) startReconnect(win, target)
 }
@@ -214,6 +414,7 @@ function showOnline(win) {
   const target = windowTargets.get(win.id)
   if (!target) return
   stopReconnect(win)
+  bumpNav(win)
   win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
 }
 
@@ -221,6 +422,7 @@ function showOnline(win) {
 export function reloadWindow(win, target) {
   if (!win || win.isDestroyed()) return
   stopReconnect(win)
+  bumpNav(win)
   win.webContents.loadURL(urlToLoad(win)).catch(() => startReconnect(win, target))
 }
 
@@ -291,7 +493,18 @@ export function createMainWindow({ target, launchUrl }) {
   const unsub = onStatusChange((st) => {
     if (win.isDestroyed()) return
     const isOffline = win.webContents.getURL().startsWith(ERROR_PAGE_URL)
-    if (st.status === 'stopped' || st.status === 'error') {
+    // Confirmed lifecycle exit only: the status machine witnessed the
+    // backend leave — the managed child really exited (cause 'exit',
+    // whether it died while running → 'stopped' or while starting →
+    // 'error') or an explicit tray stop actually terminated it (cause
+    // 'stop' → 'stopped'). Probe-derived states (detect() timeouts →
+    // cause 'probe') and start failures are observations, not exits — they
+    // must never navigate a loaded page away; the liveness watch reports
+    // them through the in-page notice.
+    const confirmedExit =
+      (st.status === 'stopped' || st.status === 'error')
+      && (st.cause === 'exit' || st.cause === 'stop')
+    if (confirmedExit) {
       // The old process token died with the backend. Drop it so a later
       // reconnect cannot replay a stale launch URL.
       windowLaunchUrls.set(win.id, null)
@@ -328,7 +541,10 @@ export function createMainWindow({ target, launchUrl }) {
       startReconnect(win, windowTargets.get(win.id) || target)
       return
     }
-    // Backend unreachable: show the offline screen and start re-probing.
+    // The navigation itself failed, so no loaded session is on screen
+    // (a user reload or initial boot reached a dead backend). The offline
+    // screen is the honest fallback here — unlike a liveness-probe timeout,
+    // this is not navigating away from a live page.
     showOffline(win)
   })
 
@@ -351,8 +567,11 @@ export function createMainWindow({ target, launchUrl }) {
         }
         if (clean) clearLaunchUrl(win)
       }
-      // Real backend page reached — stop re-probing and watch it.
+      // Real backend page reached — stop re-probing, start a fresh outage
+      // run + merged connection state and watch it.
       stopReconnect(win)
+      runFor(win).reset()
+      resetConn(win)
       startWatch(win, active)
       // The token exchange 303s to clean "/", which drops the shell contract
       // params. Re-load the stamped target once so panels relying on the
@@ -375,6 +594,9 @@ export function createMainWindow({ target, launchUrl }) {
     windowTargets.delete(win.id)
     windowLaunchUrls.delete(win.id)
     restampedWindows.delete(win.id)
+    outageRuns.delete(win.id)
+    pollInFlight.delete(win.id)
+    connStates.delete(win.id)
   })
 
   return win
