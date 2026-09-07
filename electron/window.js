@@ -19,11 +19,24 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { probe, onStatusChange, detect } from './service.js'
+import { probe, onStatusChange, detect, getAuthenticatedUrl } from './service.js'
 import { startBackendWithProgress, chooseBackendFolder } from './tray.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
 
 export const WINDOWS_TITLEBAR_HEIGHT = 32
+
+// Compare by origin (scheme + host + port), ignoring path/query. With dsh
+// 0.1.2+ the target may carry a one-time launch token (`.../?token=…`); the
+// backend exchanges it for a session cookie and 303-redirects to a clean
+// `/`, so the window's settled URL no longer contains the token and an exact
+// prefix match would wrongly reject a successful load.
+function sameOrigin(a, b) {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
 
 const PKG_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const PRELOAD_PATH = fileURLToPath(new URL('./preload.js', import.meta.url))
@@ -221,9 +234,23 @@ export function createMainWindow({ target }) {
     if ((st.status === 'stopped' || st.status === 'error') && !isOffline) {
       // Backend went down while a real page is showing — go dark at once.
       showOffline(win)
-    } else if (st.status === 'running' && isOffline) {
-      // Backend came up while we are on the offline screen — load it.
-      showOnline(win)
+    } else if (st.status === 'running') {
+      // A shell-started dsh 0.1.2+ backend printed a fresh launch-token URL;
+      // adopt it (in memory only) whenever it differs from what we last
+      // loaded. The token rotates on every backend restart, so a stale
+      // tokened target 401s — this is what keeps restarts working without
+      // asking the user to touch config.json.
+      const fresh = getAuthenticatedUrl() || target
+      const changed = fresh !== windowTargets.get(win.id)
+      if (changed) {
+        windowTargets.set(win.id, fresh)
+        stopReconnect(win)
+      }
+      if (isOffline) {
+        showOnline(win) // loads the (possibly updated) windowTargets entry
+      } else if (changed) {
+        reloadWindow(win, fresh)
+      }
     }
   })
   statusUnsubs.set(win.id, unsub)
@@ -233,7 +260,7 @@ export function createMainWindow({ target }) {
     // Offline screen already showing — just keep re-probing, do not
     // reload the offline page again (avoids a reload loop if it fails).
     if (win.webContents.getURL().startsWith(ERROR_PAGE_URL)) {
-      startReconnect(win, target)
+      startReconnect(win, windowTargets.get(win.id) || target)
       return
     }
     // Backend unreachable: show the offline screen and start re-probing.
@@ -242,10 +269,12 @@ export function createMainWindow({ target }) {
 
   win.webContents.on('did-finish-load', () => {
     const current = win.webContents.getURL()
-    if (current.startsWith(target)) {
-      // Real backend page reached — stop re-probing and watch it.
+    const active = windowTargets.get(win.id) || target
+    if (sameOrigin(current, active)) {
+      // Real backend page reached — stop re-probing and watch it. Compared by
+      // origin: the launch token in the target is dropped by the 303 redirect.
       stopReconnect(win)
-      startWatch(win, target)
+      startWatch(win, active)
     }
   })
 

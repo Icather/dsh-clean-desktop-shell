@@ -34,6 +34,19 @@ let currentStatus = 'stopped'
 let lastError = null
 let startResolver = null
 
+// dsh 0.1.2+ gates the web index behind a per-process launch token: the
+// startup line now reads `dsh web: http://127.0.0.1:3080/?token=…`, and a
+// loopback GET without that token (or the session cookie it mints) is
+// rejected with 401. Keep the FULL printed URL so the window can load
+// authenticated. Memory-only by design — the token rotates on every backend
+// restart and must never be persisted to config.
+let authenticatedUrl = null
+
+/** The authenticated root URL captured from the last shell-started backend. */
+export function getAuthenticatedUrl() {
+  return authenticatedUrl
+}
+
 // Status-change listeners (tray menu auto-refresh, window auto-reload, ...).
 const listeners = new Set()
 
@@ -99,9 +112,13 @@ export async function detect() {
  * (or a spawned CLI prints its ready line). Throws on failure.
  */
 export async function start({ backendPath } = {}) {
-  // Already up?
+  // Already up? An externally-started backend printed its launch token where
+  // we cannot see it — the shell cannot authenticate by itself in that case.
   const up = await detect()
-  if (up) return up
+  if (up) {
+    authenticatedUrl = null
+    return up
+  }
 
   // Backend path: explicit config → common locations → PATH.
   const resolved = await resolveDshCommand(backendPath)
@@ -144,6 +161,7 @@ export async function start({ backendPath } = {}) {
 
   child.on('exit', (code) => {
     child = null
+    authenticatedUrl = null
     if (currentStatus === 'starting' && startResolver) {
       const r = startResolver
       startResolver = null
@@ -177,14 +195,17 @@ export async function start({ backendPath } = {}) {
 
     const onData = () => {
       const text = stdout + stderr
-      const m = text.match(/http:\/\/127\.0\.0\.1:(\d+)/)
+      // Capture the full printed root URL including any query (dsh 0.1.2+
+      // carries its one-time launch token there). The optional tail keeps
+      // pre-0.1.2 bare `http://127.0.0.1:<port>` lines working unchanged.
+      const m = text.match(/http:\/\/127\.0\.0\.1:\d+(?:\/[^\s"')]*[^\s"')]?)?/)
       if (m && startResolver) {
         clearTimeout(timer)
         const r = startResolver
         startResolver = null
-        const url = `http://127.0.0.1:${m[1]}`
+        authenticatedUrl = m[0]
         setStatus('running')
-        r.resolve(url)
+        r.resolve(authenticatedUrl)
       }
     }
     child.stdout.on('data', (d) => {
@@ -208,6 +229,7 @@ export async function start({ backendPath } = {}) {
  *   it looks like a node-based backend, never an unrelated program.
  */
 export async function stop() {
+  authenticatedUrl = null
   if (child) {
     const proc = child
     child = null
