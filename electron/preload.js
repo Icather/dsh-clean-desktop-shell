@@ -28,7 +28,12 @@ contextBridge.exposeInMainWorld('shellAPI', {
 window.addEventListener('DOMContentLoaded', () => {
   const platform = process.platform
   const isWin = platform === 'win32'
-  const dragHeight = isWin ? 32 : 28
+  // macOS: 12px (was 28). The DSH web UI's own top toolbar starts ~16px
+  // from the window top and does NOT consume dsh-desktop-titlebar-inset,
+  // so a 28px strip swallowed the upper half of every toolbar control —
+  // clicks had to aim low. 12px stays above that padding (drag-only band)
+  // while better-sidebar keeps yielding 28px for the traffic lights.
+  const dragHeight = isWin ? 32 : 12
   // Width reserved for native window controls (Win caption buttons / mac
   // traffic lights live at the top-right / top-left).
   const rightReserve = isWin ? 138 : 80

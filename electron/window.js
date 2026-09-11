@@ -59,10 +59,11 @@ const RECONNECT_INTERVAL_MS = 2500
 // How often we check the backend is still alive while the page is shown.
 const WATCH_INTERVAL_MS = 4000
 
-// Top drag-strip geometry. Must mirror the strip the preload injects
-// (preload.js: dragHeight 32 on Windows, 28 elsewhere) — the strip swallows
-// pointer events over the top band, so dockable panels must be told how many
-// pixels to yield. better-sidebar reads this through its documented shell
+// Top drag-strip geometry. The preload strip is 32px on Windows, 12px on
+// macOS (kept BELOW the web UI's own ~16px toolbar padding so no clickable
+// control is swallowed). The inset stamped here is deliberately 28px on
+// macOS — larger than the strip — so dockable panels (better-sidebar) both
+// clear the swallow band and keep clear of the traffic lights. better-sidebar reads this through its documented shell
 // contract: `dsh-desktop-titlebar-inset` on the render URL.
 function isWin() {
   return process.platform === 'win32'
