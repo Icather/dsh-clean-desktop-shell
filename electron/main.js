@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { createMainWindow, reloadWindow } from './window.js'
 import { createTray, refreshTrayMenu } from './tray.js'
 import { loadConfig, saveConfig, DEFAULT_TARGET_URL } from './config.js'
-import { detect } from './service.js'
+import { detect, getAuthenticatedUrl } from './service.js'
 import { setupAutoUpdater } from './update.js'
 import { shortcutSupported, hasDesktopShortcut, createDesktopShortcut, ensureStartMenuShortcut } from './shortcut.js'
 import { APP_USER_MODEL_ID } from './aumid.js'
@@ -142,7 +142,10 @@ if (!gotLock) {
       },
       onReload: () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          reloadWindow(mainWindow, loadConfig().targetUrl || DEFAULT_TARGET_URL)
+          // Prefer the live launch-token URL from the last shell-started
+          // backend; a manual refresh is exactly when a stale config target
+          // (or a bare pre-0.1.2 loopback URL) would 401.
+          reloadWindow(mainWindow, getAuthenticatedUrl() || loadConfig().targetUrl || DEFAULT_TARGET_URL)
         }
       },
       onQuit: () => {
