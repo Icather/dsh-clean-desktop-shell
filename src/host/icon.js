@@ -16,6 +16,48 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PKG_ROOT, isWin, runtimeRoot, fetchFile } from './common.js'
 
+const RCEDIT_NAME = 'rcedit-x64.exe'
+const RCEDIT_URL = 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe'
+
+/**
+ * rcedit is a ~1.3 MB self-contained exe, and its download sits on the launch
+ * path (Windows locks a running image, so the patch has to happen before the
+ * exe is spawned). fetchFile's default budget — 600 s — is sized for the
+ * ~100 MB Electron runtime, not for this: behind a stalled proxy it could keep
+ * the window off screen for ten minutes. Cap it well below that; a miss only
+ * costs the default icon.
+ */
+const RCEDIT_TIMEOUT_SEC = 20
+
+let rceditPromise = null
+
+/**
+ * Fetch (once) the cached rcedit binary next to the runtimes. Memoised so the
+ * host half can start this alongside the Electron runtime download and have
+ * the icon step reuse the same fetch instead of serialising behind it.
+ *
+ * Never rejects: every failure mode just means "no rcedit, default icon".
+ */
+export function ensureRcedit(ctx) {
+  if (!rceditPromise) {
+    rceditPromise = (async () => {
+      try {
+        const rcedit = join(runtimeRoot(), RCEDIT_NAME)
+        if (existsSync(rcedit)) return rcedit
+        ctx.logger.info('[clean-desktop-shell] downloading rcedit for icon patching')
+        if (await fetchFile(RCEDIT_URL, rcedit, RCEDIT_TIMEOUT_SEC)) return rcedit
+        ctx.logger.warn('[clean-desktop-shell] rcedit download failed — taskbar icon stays default')
+      } catch (err) {
+        ctx.logger.warn(`[clean-desktop-shell] rcedit unavailable (${err?.message ?? err}) — taskbar icon stays default`)
+      }
+      // Not memoised as a failure: a later launch deserves a fresh attempt.
+      rceditPromise = null
+      return null
+    })()
+  }
+  return rceditPromise
+}
+
 export async function patchExeIcon(ctx, exe) {
   if (!isWin) return
   const ico = join(PKG_ROOT, 'build', 'icon.ico')
@@ -23,16 +65,8 @@ export async function patchExeIcon(ctx, exe) {
   const marker = `${exe}.whale-icon`
   if (existsSync(marker)) return
 
-  // rcedit is a single self-contained exe, cached next to the runtimes.
-  const rcedit = join(runtimeRoot(), 'rcedit-x64.exe')
-  if (!existsSync(rcedit)) {
-    const url = 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe'
-    ctx.logger.info('[clean-desktop-shell] downloading rcedit for icon patching')
-    if (!(await fetchFile(url, rcedit))) {
-      ctx.logger.warn('[clean-desktop-shell] rcedit download failed — taskbar icon stays default')
-      return
-    }
-  }
+  const rcedit = await ensureRcedit(ctx)
+  if (!rcedit) return
 
   const child = spawn(rcedit, [exe, '--set-icon', ico], {
     windowsHide: true,

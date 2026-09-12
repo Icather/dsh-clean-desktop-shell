@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { PKG_ROOT, MAIN_JS, dshHome, runtimeRoot, launchLogPath } from './common.js'
 import { ensureRuntime } from './runtime.js'
-import { patchExeIcon } from './icon.js'
+import { ensureRcedit, patchExeIcon } from './icon.js'
 
 // cordis registers the plugin by this name — bundles without an explicit
 // `name` export are silently skipped by the dsh loader.
@@ -21,7 +21,35 @@ export const name = 'dsh-clean-desktop-shell'
 // Disable auto-launch with DSH_SHELL_AUTO_LAUNCH=0.
 const AUTO_LAUNCH = process.env.DSH_SHELL_AUTO_LAUNCH !== '0'
 
+/**
+ * Hard budget for the taskbar-icon step. It runs before the spawn (Windows
+ * locks a running image), so it is on the launch path — but the icon is
+ * cosmetic and must never decide when the window appears. Without a budget a
+ * stalled rcedit fetch held the first launch for up to the fetchFile default
+ * of 600 s; with it, the worst case is 25 s and the usual case is ~0 (the
+ * fetch has already finished behind the Electron runtime download).
+ */
+const ICON_PATCH_DEADLINE_MS = 25000
+
 let launched = false
+
+/**
+ * Let a best-effort step run, but never wait longer than `ms` for it. Whatever
+ * it was doing keeps running in the background.
+ */
+function withDeadline(ctx, promise, ms) {
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      ctx.logger.warn(`[clean-desktop-shell] icon step exceeded ${ms} ms — launching without it`)
+      resolve()
+    }, ms)
+    // Do not keep the host process alive just to fire a warning.
+    timer.unref?.()
+  })
+  const settled = promise.then(() => {}, () => {})
+  return Promise.race([settled, deadline]).finally(() => clearTimeout(timer))
+}
 
 export function apply(ctx) {
   ctx.logger.info('[clean-desktop-shell] mounted (host half)')
@@ -30,10 +58,13 @@ export function apply(ctx) {
   // Runtime preparation is independent of authentication — start it now, but
   // defer the Electron spawn until the launch URL is minted below.
   let runtimeExe = null
+  // Kick the (tiny) rcedit fetch off alongside the (large) Electron runtime so
+  // the two never serialise; patchExeIcon reuses this same memoised promise.
+  void ensureRcedit(ctx)
   const runtimeReady = ensureRuntime(ctx)
     .then(async (exe) => {
       runtimeExe = exe
-      await patchExeIcon(ctx, exe).catch(() => {})
+      await withDeadline(ctx, patchExeIcon(ctx, exe), ICON_PATCH_DEADLINE_MS)
     })
     .catch((err) => {
       reportLaunchFailure(ctx, err)
