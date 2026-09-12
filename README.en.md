@@ -245,6 +245,7 @@ This entry exercises recovery boundaries using a temporary non-executable file a
 ## Changelog
 
 ### Unreleased
+- Fixed a first launch that could stay windowless for minutes: the taskbar-icon patch (rcedit) reused the generic 600 s download budget, so a slow GitHub could hold the window back for ten minutes. It now has its own 20 s cap plus a 25 s deadline for the whole step, and runs in parallel with the Electron runtime download — a miss only costs the custom icon, never the window.
 - A slow backend response no longer navigates away to the offline screen: the loaded page is preserved and an in-page notice is shown, so drafts, scroll position and selection survive.
 - Probe observations are separated from confirmed exits: only a real process exit or an explicit stop counts as the backend going down, and the probe keeps its 1,500 ms timeout.
 - Real client connection state and the runtime's own reconnect action are bridged in (`shellAPI.connectionReport` / `onReconnectRequest`): a live HTTP port can no longer hide a dead page WebSocket, and manual plus automatic retries share one guard so an immediate failure cannot feed a reconnect loop.
