@@ -127,6 +127,67 @@ and both can be avoided entirely by setting `DSH_SHELL_ELECTRON_DIR`.
 The unsigned-installer warnings (Windows SmartScreen, macOS Gatekeeper) come from
 the **absence of a code-signing certificate**, not from any of the above.
 
+## Compatibility & runtime bounds
+
+The "high capability" rating comes from the four capabilities listed above (files, network,
+commands, credentials). Compatibility ranges, dependencies, external services and failure
+bounds are declared below for human review — **a declaration is not an acceptance run**, so
+every row names its evidence.
+
+### Compatibility ranges
+
+| Item | Declaration | Basis |
+|:--|:--|:--|
+| Node.js | `>=20.0.0` (`engines.node`) | The host half uses global `fetch` and `AbortSignal.timeout`; the Electron half runs on Electron 33's embedded Node 20.18. Nothing newer is required. |
+| DSH | `>=0.1.1 <0.2.0` (`dsh.compatibility.dsh`) | Targets the 0.1.x plugin contract. Before 0.1.2 there is no BrowserAuth, and the host half has an explicit guard for that generation (it still launches the window, just without a bootstrap URL). |
+
+`dsh.compatibility.dshReleases` records the tested status per release:
+
+| DSH version | Status | Evidence |
+|:--|:--|:--|
+| `0.1.5-rc.1` | `compatible` | Real end-to-end: launch-token banner → plugin auto-launches the shell → the window renders the UI and stores a `dsh-auth` cookie; keep-page-on-outage and offline-screen-on-confirmed-exit both pass |
+| `0.1.5-rc.2`, `0.1.5-alpha.2` | `unknown` | No runtime acceptance run |
+| `0.1.1-rc.2` | `unknown` | The "pre-0.1.2" code path is asserted separately (real host module against a connection without `authenticatedUrl`), but no full acceptance run on that release |
+
+### Dependencies & lifecycle scripts
+
+| Kind | Content |
+|:--|:--|
+| Runtime deps | `electron-updater` (tray "check for updates"), `semver` (version comparison). Both are used in the Electron half only; **the host half loads no third-party dependency**. |
+| Peer dep | `@deepseek-ai/dsh` (optional) — the host is provided by DSH, never installed with this package. |
+| Dev deps | `electron`, `electron-builder`, `sharp`, `png-to-ico` (build and icon generation only). |
+| Lifecycle scripts | **None.** This package declares no `preinstall` / `install` / `postinstall` / `prepare`; `scripts` holds only manual entries (`build` / `check` / `dev` / `icons` / `pack`). |
+| Install-script exception | `pnpm.allowScripts` allows `electron`'s own postinstall (it downloads the Electron binary). That is a **dependency's** script, not this package's, and only appears when dev dependencies are installed. |
+
+### External services
+
+| Endpoint | When | Failure behaviour |
+|:--|:--|:--|
+| `github.com` / `npmmirror.com` | First-time Electron runtime provisioning; two sources race with a 3 s timeout (~100 MB) | Both fail → the window does not start, and `<DSH_HOME>/desktop-shell-launch.log` records the platform, the raw error and alternatives |
+| `github.com` (rcedit) | First-time taskbar-icon patch on the runtime exe (~1.3 MB) | Capped at 20 s for the fetch and 25 s for the whole step; a timeout only costs the custom icon — **never the window** — and the next launch retries |
+| `api.github.com` | Tray "check for updates" / auto-update | Fails silently; nothing else is affected |
+| Anything else | None. No uploads, no conversation data, no telemetry. | — |
+
+### Failure bounds
+
+- **Backend will not start**: the offline screen is shown and re-probed every 2.5 s; it loads the moment the backend answers.
+- **Backend drops**: the loaded page is kept with an in-page notice (no reload, no lost drafts); only a confirmed process exit or an explicit stop swaps in the offline screen.
+- **Not Windows**: the taskbar-icon patch is skipped outright (first line of `patchExeIcon` is an `isWin` check).
+- **`dsh` CLI not found**: point the tray at the folder, or set `DSH_BACKEND_DIR`.
+
+### Disposable-profile acceptance record
+
+A full install / start / uninstall cycle in a clean throwaway DSH home and profile
+(**never the daily profile**), DSH `0.1.5-rc.1`, Windows 11:
+
+| Step | Command | Result |
+|:--|:--|:--|
+| Install | `dsh plugin --profile web add file:<repo>` | exit 0 (pnpm 2.2 s); the plugin entry appears in `--dump-config` |
+| Start | `dsh web --no-open` | launch-token banner printed; bare `/` → 401, with token → 303 + `Set-Cookie: dsh-auth-…`, with cookie → 200; the index manifest contains `dsh-clean-desktop-shell/client.js` (plugin mounted in the front end) |
+| Plugin launches the window | same run | The host half completed every step: `inject(['connection'])` fired → `webServer` resolved → launch URL minted → `launchShell()` called (asserted point by point with a temporary probe). **Window visibility was not accepted on this machine**: the acceptance host is a GPU-less CI-style sandbox where Electron exits with `FATAL: GPU process isn't usable` — unrelated to this plugin (a blank Electron app with no GPU flags exits there too, and `--in-process-gpu` makes it work). Window rendering itself was verified separately with a GPU-flagged harness. |
+| Uninstall | `dsh plugin --profile web remove dsh-clean-desktop-shell` | exit 0 (pnpm 1.4 s); plugin entries in `--dump-config` drop to zero |
+| Rollback | Uninstall is the rollback: `dsh.profile.bundles` and `dependencies` are updated together, and backend/window behaviour returns to the uninstalled state | — |
+
 ## Install
 
 **Option 1: download the installer from Releases (for a standalone desktop app)**
@@ -245,6 +306,7 @@ This entry exercises recovery boundaries using a temporary non-executable file a
 ## Changelog
 
 ### Unreleased
+- Declared compatibility ranges explicitly (`engines.node: ">=20.0.0"` and `dsh.compatibility` with per-release status), plus dependencies, lifecycle scripts (none), external services, failure bounds and a disposable-profile install / start / uninstall record — meeting the DSH STORE listing contract.
 - Fixed a first launch that could stay windowless for minutes: the taskbar-icon patch (rcedit) reused the generic 600 s download budget, so a slow GitHub could hold the window back for ten minutes. It now has its own 20 s cap plus a 25 s deadline for the whole step, and runs in parallel with the Electron runtime download — a miss only costs the custom icon, never the window.
 - A slow backend response no longer navigates away to the offline screen: the loaded page is preserved and an in-page notice is shown, so drafts, scroll position and selection survive.
 - Probe observations are separated from confirmed exits: only a real process exit or an explicit stop counts as the backend going down, and the probe keeps its 1,500 ms timeout.

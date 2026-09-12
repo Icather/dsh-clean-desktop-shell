@@ -108,6 +108,63 @@ v0.1.7 修复了插件形态在 macOS 上无法定位 `Electron.app` 路径的�
 
 安装包的未签名警告（Windows SmartScreen、macOS Gatekeeper）来自**缺少代码签名证书**，与上述行为无关。
 
+## 兼容性与运行边界
+
+扫描器给出的「高能力」评级来自上一节那四类能力（文件 / 网络 / 命令 / 凭据）。下面把兼容范围、依赖、外部服务与失败边界摊开声明，供人工审阅——**声明不等于验收**，逐条注明证据。
+
+### 兼容范围
+
+| 项 | 声明 | 依据 |
+|:--|:--|:--|
+| Node.js | `>=20.0.0`（`engines.node`） | host 半边用全局 `fetch` 与 `AbortSignal.timeout`；Electron 半边跑在 Electron 33 内嵌的 Node 20.18 上。没有更新 API 的依赖。 |
+| DSH | `>=0.1.1 <0.2.0`（`dsh.compatibility.dsh`） | 面向 0.1.x 的插件契约；0.1.2 之前没有 BrowserAuth，host 半边对该代有显式守卫（拿不到 `authenticatedUrl()` 时照常拉起窗口，只是不带 bootstrap URL）。 |
+
+`dsh.compatibility.dshReleases` 逐版本标注实测状态：
+
+| DSH 版本 | 状态 | 证据 |
+|:--|:--|:--|
+| `0.1.5-rc.1` | `compatible` | 真机端到端：token 横幅 → 插件自动弹壳 → 窗口渲染 UI 并写入 `dsh-auth` cookie；掉线保留页面、确认退出切离线页均实测通过 |
+| `0.1.5-rc.2`、`0.1.5-alpha.2` | `unknown` | 未做运行验收 |
+| `0.1.1-rc.2` | `unknown` | 「0.1.2 之前」这条代码路径有独立断言（真实 host 模块 + 无 `authenticatedUrl` 的 connection），但没在真实该版本上跑完整验收 |
+
+### 依赖与生命周期脚本
+
+| 类型 | 内容 |
+|:--|:--|
+| 运行时依赖 | `electron-updater`（托盘「检查更新」）、`semver`（版本比较）。两者都只在 Electron 半边使用；**host 半边不加载任何第三方依赖**。 |
+| peer 依赖 | `@deepseek-ai/dsh`（可选）——宿主由 DSH 提供，不随本包安装。 |
+| 开发依赖 | `electron`、`electron-builder`、`sharp`、`png-to-ico`（仅构建与图标生成）。 |
+| 生命周期脚本 | **无。** 本包不声明 `preinstall` / `install` / `postinstall` / `prepare`；`scripts` 只有 `build` / `check` / `dev` / `icons` / `pack` 这些手动入口。 |
+| 安装期脚本例外 | `pnpm.allowScripts` 放行了 `electron` 自身的 postinstall（它要下载 Electron 二进制）。这是**依赖的**脚本、不是本包的，且只在装开发依赖时出现。 |
+
+### 外部服务
+
+| 端点 | 何时访问 | 失败后果 |
+|:--|:--|:--|
+| `github.com` / `npmmirror.com` | 首次准备 Electron 运行时，两源 3 秒竞速下载（约 100MB） | 两源都失败 → 窗口不启动，并写入 `<DSH_HOME>/desktop-shell-launch.log`（含平台、错误原文与替代方案） |
+| `github.com`（rcedit） | 首次给 runtime exe 打任务栏图标（约 1.3MB） | 下载限时 20 秒、整步限时 25 秒，超时只损失自定义图标，**不影响出窗**；下次启动重试 |
+| `api.github.com` | 托盘「检查更新」/ 自动更新 | 静默失败，不影响使用 |
+| 其他 | 无。不上传数据、不读会话内容、无遥测。 | — |
+
+### 失败边界
+
+- **后端起不来**：显示离线页并每 2.5 秒重探，后端一通立即加载。
+- **后端掉线**：保留已加载页面 + 页内提示（不重载、不丢草稿）；只有确认进程退出或用户主动停止才切离线页。
+- **非 Windows**：任务栏图标补丁直接跳过（`patchExeIcon` 首行 `isWin` 判断）。
+- **找不到 `dsh` CLI**：托盘「设置后端文件夹」手动指定，或设 `DSH_BACKEND_DIR`。
+
+### 一次性 Profile 验收记录
+
+在一台干净的一次性 DSH home + 一次性 profile 上跑完整安装 / 启动 / 卸载循环（**不触碰日常 profile**），DSH `0.1.5-rc.1`、Windows 11：
+
+| 步骤 | 命令 | 结果 |
+|:--|:--|:--|
+| 安装 | `dsh plugin --profile web add file:<repo>` | 退出码 0（pnpm 2.2s）；`--dump-config` 出现插件条目 |
+| 启动 | `dsh web --no-open` | 打印 launch token 横幅；裸 `/` → 401、带 token → 303 + `Set-Cookie: dsh-auth-…`、带 cookie → 200；首页 manifest 含 `dsh-clean-desktop-shell/client.js`（插件在前端已挂载） |
+| 插件拉起窗口 | 同上 | host 半边完整走通：`inject(['connection'])` 触发 → `webServer` 可解析 → 铸出 launch URL → `launchShell()` 被调用（用临时探针逐点断言）。**窗口是否可见未在本环境验收**：验收机是 CI 式无 GPU 沙箱，Electron 报 `FATAL: GPU process isn't usable` 后退出，与本插件无关（同一台机器上不带任何 GPU 参数的空白 Electron 应用同样退出，带 `--in-process-gpu` 则正常）。窗口渲染本身在此前用带 GPU 参数的 harness 单独验证过。 |
+| 卸载 | `dsh plugin --profile web remove dsh-clean-desktop-shell` | 退出码 0（pnpm 1.4s）；`--dump-config` 中插件条目归零 |
+| 回滚 | 卸载即回滚：`dsh.profile.bundles` 与 `dependencies` 同步移除，后端与窗口行为回到未安装状态 | — |
+
 ## 安装
 
 **方式一：从 Release 下载安装包（想要独立桌面应用的用户）**
@@ -226,6 +283,7 @@ test -n "$ELECTRON" && "$ELECTRON" --user-data-dir="$(mktemp -d)" scripts/selfte
 ## 更新历史
 
 ### 未发布
+- 显式声明兼容范围：`engines.node: ">=20.0.0"` 与 `dsh.compatibility`（含逐版本实测状态），并补齐依赖、生命周期脚本（无）、外部服务、失败边界与一次性 profile 的安装 / 启动 / 卸载验收记录——满足 DSH STORE 的上架契约。
 - 修复首次启动可能长时间不出窗：任务栏图标补丁（rcedit）此前沿用通用下载预算（600 秒），GitHub 慢时能把窗口拖到十分钟才出现。现在它单独限时 20 秒、整步另有 25 秒硬上限，并与 Electron 运行时下载并行；超时只损失自定义图标，不再影响出窗。
 - 后端响应超时不再直接跳离线页：改为页内提示并保留已加载页面，草稿/滚动/选中状态不受影响。
 - 区分「探测结果」与「确认退出」：只有进程真的退出或用户主动停止才算后端下线，探测超时不再被当成退出；探测超时保留 1,500 ms。
