@@ -237,6 +237,7 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 - Fixed a startup race: the backend port answers (4xx) before Loader settlement, so the offline screen's reconnect probe no longer loads the bare URL first and loses the token bootstrap.
 - "Reload window" and window reloads now use the current process's launch URL: the launch token rotates on every restart, so persisting it to `config.json` would only fail on the next restart.
 - New desktop titlebar contract: page URLs carry `dsh-desktop-mode` / `dsh-desktop-platform` / `dsh-desktop-titlebar-inset` so dockable panels (better-sidebar) can yield the drag strip.
+- Older DSH stays supported: before 0.1.2 there is no BrowserAuth and no launch-URL mint, so the window simply opens without a bootstrap URL instead of never opening at all.
 
 ### 0.1.10
 - Version comparison now uses semver (`semver.coerce` + `semver.gt`) — the industry standard — replacing the hand-rolled tuple parser.

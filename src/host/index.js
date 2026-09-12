@@ -56,7 +56,13 @@ export function apply(ctx) {
       if (!webServer) return
       try {
         const webUrl = `http://127.0.0.1:${String(webServer.port)}`
-        const launchUrl = connectionCtx.connection.authenticatedUrl(webUrl)
+        // dsh 0.1.2+ mints this process's launch URL through BrowserAuth.
+        // Older versions have no BrowserAuth at all — they serve the web root
+        // unauthenticated — so a missing mint must NOT stop the launch: the
+        // shell just starts with no bootstrap URL, which is exactly the
+        // pre-0.1.2 behaviour.
+        const mint = connectionCtx.connection.authenticatedUrl
+        const launchUrl = typeof mint === 'function' ? mint.call(connectionCtx.connection, webUrl) : null
         void runtimeReady.then(() => {
           if (runtimeExe) launchShell(runtimeExe, connectionCtx, launchUrl)
         })

@@ -218,6 +218,7 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 - 修复启动竞态：后端端口在 Loader settle 前即开始应答（4xx），离线页重连探针不再抢先加载裸 URL 而丢掉 token bootstrap。
 - 「刷新窗口」与窗口重载改用当前进程的 launch URL：launch token 每次重启都会轮换，写进 `config.json` 反而会在下次重启后失效。
 - 新增桌面标题栏契约：页面 URL 带上 `dsh-desktop-mode` / `dsh-desktop-platform` / `dsh-desktop-titlebar-inset`，供 better-sidebar 等可停靠面板按拖拽条高度避让。
+- 兼容旧版 DSH：0.1.2 之前没有 BrowserAuth，也没有 mint launch URL 的接口——此时窗口照常拉起（只是不带 bootstrap URL），不会因为缺少该接口而完全不出窗。
 
 ### 0.1.10
 - 版本比较改用 semver（industry-standard `semver.coerce` + `semver.gt`），替换手写元组比较。
