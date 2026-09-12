@@ -231,10 +231,12 @@ npm run pack    # package NSIS (Win) / DMG (mac)
 
 ## Changelog
 
-### 0.1.11
-- DSH 0.1.2 BrowserAuth compatibility: on plugin cold start the host defers-injects the Connection service and, after the Loader tree settles, mints this process's launch URL for Electron — first entry completes the `?token=` → Cookie exchange automatically, no manual backend restart.
+### 0.1.12
+- **DSH 0.1.2 BrowserAuth compatibility, plugin form included**: on plugin cold start the host defers-injects the Connection service and, after the Loader tree settles, mints this process's launch URL for Electron — first entry completes the `?token=` → Cookie exchange automatically, no manual backend restart. Until now only a shell-started backend could obtain a token; the plugin form (`dsh web` auto-launching the shell) and "start `dsh web` yourself, then open the shell" both stayed on the unauthenticated page.
+- Electron-managed backend (start / restart) keeps the stdout launch-URL bootstrap: it matches the `dsh web:` banner strictly and keeps the whole `?token=` (loopback only — the token is a local-process secret), with a fallback parse for pre-0.1.2 bare URLs so those no longer degrade into a startup timeout; an externally running backend is never restarted or killed on its own.
 - Fixed a startup race: the backend port answers (4xx) before Loader settlement, so the offline screen's reconnect probe no longer loads the bare URL first and loses the token bootstrap.
-- Electron-managed backend (start / restart) keeps the stdout launch-URL bootstrap; an externally running backend is never restarted or killed on its own.
+- "Reload window" and window reloads now use the current process's launch URL: the launch token rotates on every restart, so persisting it to `config.json` would only fail on the next restart.
+- New desktop titlebar contract: page URLs carry `dsh-desktop-mode` / `dsh-desktop-platform` / `dsh-desktop-titlebar-inset` so dockable panels (better-sidebar) can yield the drag strip.
 
 ### 0.1.10
 - Version comparison now uses semver (`semver.coerce` + `semver.gt`) — the industry standard — replacing the hand-rolled tuple parser.
