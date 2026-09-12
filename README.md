@@ -212,10 +212,12 @@ npm run pack    # 打包 NSIS (Win) / DMG (mac)
 
 ## 更新历史
 
-### 0.1.11
-- 适配 DSH 0.1.2 BrowserAuth：插件冷启动时由 host 延迟注入 Connection 服务、等 Loader settle 后铸造本进程 launch URL 交给 Electron，首次进入自动完成 `?token=` → Cookie 认证，无需手动重启后端。
+### 0.1.12
+- **适配 DSH 0.1.2 BrowserAuth，插件形态一并修复**：插件冷启动时由 host 延迟注入 Connection 服务、等 Loader settle 后铸造本进程 launch URL 交给 Electron，首次进入自动完成 `?token=` → Cookie 认证，无需手动重启后端。此前只有「壳自己启动后端」这条路能拿到 token，插件形态（`dsh web` 自动弹壳）与「先手动跑 `dsh web` 再开壳」都会停在未认证页。
+- Electron 自管后端（启动 / 重启）沿用 stdout launch URL bootstrap：严格匹配 `dsh web:` 横幅并保留完整 `?token=`（只接受 loopback，token 属本机进程机密），对 0.1.2 之前的裸 URL 保留回退解析以免退化成等待超时；外部已运行的 backend 不会被擅自重启或杀掉。
 - 修复启动竞态：后端端口在 Loader settle 前即开始应答（4xx），离线页重连探针不再抢先加载裸 URL 而丢掉 token bootstrap。
-- Electron 自管后端（启动 / 重启）沿用 stdout launch URL bootstrap；外部已运行的 backend 不会被擅自重启或杀掉。
+- 「刷新窗口」与窗口重载改用当前进程的 launch URL：launch token 每次重启都会轮换，写进 `config.json` 反而会在下次重启后失效。
+- 新增桌面标题栏契约：页面 URL 带上 `dsh-desktop-mode` / `dsh-desktop-platform` / `dsh-desktop-titlebar-inset`，供 better-sidebar 等可停靠面板按拖拽条高度避让。
 
 ### 0.1.10
 - 版本比较改用 semver（industry-standard `semver.coerce` + `semver.gt`），替换手写元组比较。
