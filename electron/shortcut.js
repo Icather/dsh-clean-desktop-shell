@@ -52,8 +52,11 @@ export function shortcutSupported() {
  * The user's real Desktop. app.getPath('desktop') resolves OneDrive
  * redirection and roaming profile policies — a hardcoded ~/Desktop misses
  * those and writes the shortcut where the user will never see it.
+ * Exported so callers can tell the user which folder actually received the
+ * .lnk (a shortcut written to a redirected Desktop is a classic
+ * "nothing happened" report).
  */
-function desktopDir() {
+export function desktopDir() {
   try {
     return app.getPath('desktop')
   } catch {

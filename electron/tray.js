@@ -20,7 +20,7 @@ import {
 } from './service.js'
 import { showProgress, setProgress, closeProgress } from './progress.js'
 import { checkForUpdatesAuto, openRepo } from './update.js'
-import { shortcutSupported, createDesktopShortcut } from './shortcut.js'
+import { shortcutSupported, createDesktopShortcut, desktopDir } from './shortcut.js'
 
 const trayIconPath = join(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -71,19 +71,31 @@ export function refreshTrayMenu() {
       label: '创建桌面快捷方式',
       visible: shortcutSupported(),
       click: async () => {
-        const ok = await createDesktopShortcut()
-        if (ok) {
-          dialog.showMessageBoxSync({
-            type: 'info',
-            title: '已创建',
-            message: '桌面快捷方式已创建。',
-          })
-        } else {
-          dialog.showMessageBoxSync({
-            type: 'warning',
-            title: '创建失败',
-            message: '无法创建桌面快捷方式，请稍后重试。',
-          })
+        try {
+          const ok = await createDesktopShortcut()
+          if (ok) {
+            dialog.showMessageBoxSync({
+              type: 'info',
+              title: '已创建',
+              message: '桌面快捷方式已创建。',
+              detail: `位置：${desktopDir()}`,
+            })
+          } else {
+            dialog.showMessageBoxSync({
+              type: 'warning',
+              title: '创建失败',
+              message: '无法创建桌面快捷方式，请稍后重试。',
+            })
+          }
+        } catch (err) {
+          // shell.writeShortcutLink throws (instead of returning false) for
+          // several failure modes. Without this guard the rejection is
+          // swallowed by the async click handler and the menu item looks like
+          // it did nothing at all.
+          dialog.showErrorBox(
+            '创建桌面快捷方式失败',
+            `${err && err.message ? err.message : String(err)}\n\n位置：${desktopDir()}`,
+          )
         }
       },
     },

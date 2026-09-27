@@ -138,9 +138,18 @@ if (!gotLock) {
       cancelId: 1,
     })
     if (choice === 0) {
-      const ok = await createDesktopShortcut()
-      if (!ok) {
-        dialog.showErrorBox('创建快捷方式失败', '无法在桌面创建快捷方式。可稍后在托盘右键菜单中重试。')
+      try {
+        const ok = await createDesktopShortcut()
+        if (!ok) {
+          dialog.showErrorBox('创建快捷方式失败', '无法在桌面创建快捷方式。可稍后在托盘右键菜单中重试。')
+        }
+      } catch (err) {
+        // See tray.js: writeShortcutLink throws on some failures, and an
+        // unguarded rejection here would abort the rest of the ready chain.
+        dialog.showErrorBox(
+          '创建快捷方式失败',
+          `${err && err.message ? err.message : String(err)}\n\n可稍后在托盘右键菜单中重试。`,
+        )
       }
     }
   }
