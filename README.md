@@ -282,6 +282,12 @@ test -n "$ELECTRON" && "$ELECTRON" --user-data-dir="$(mktemp -d)" scripts/selfte
 
 ## 更新历史
 
+### 0.1.14
+- 修复「点击创建桌面快捷方式没反应」：`shell.writeShortcutLink` 在若干失败场景下是**抛异常**而不是返回 `false`，而托盘菜单与首次运行提示两处调用都没有接住它，异常变成无人处理的 Promise rejection，界面上什么都不显示。现在两处都捕获异常并显示错误原文。
+- 快捷方式提示会给出**实际落盘目录**：桌面可能被 OneDrive 重定向（`…\OneDrive\桌面`），此时快捷方式确实创建成功、只是不在用户习惯查看的「桌面」文件夹里。成功与失败弹窗现在都会写明路径，这个歧义不再存在。
+- 兼容性声明新增 `dshReleases["0.1.5-rc.3"] = "compatible"`——该状态来自一台真实 Electron 窗口对着 0.1.5-rc.3 后端的端到端复验（launch token 交换 → 落到干净根路径 → 真实 UI 渲染 → `dsh-auth` cookie 落位），未经验证的版本一律保持 `unknown`。
+- 修正 `package-lock.json` 中陈旧的 `version` 字段（0.1.10 → 0.1.13）。
+
 ### 0.1.13
 - 修复首次启动可能长时间不出窗：任务栏图标补丁（rcedit）此前沿用通用下载预算（600 秒），GitHub 慢时能把窗口拖到十分钟才出现。现在它单独限时 20 秒、整步另有 25 秒硬上限，并与 Electron 运行时下载并行；超时只损失自定义图标，不再影响出窗。
 - 显式声明兼容范围：`engines.node: ">=20.0.0"` 与 `dsh.compatibility`（含逐版本实测状态），并补齐依赖、生命周期脚本（无）、外部服务、失败边界与一次性 profile 的安装 / 启动 / 卸载验收记录——满足 DSH STORE 的上架契约。

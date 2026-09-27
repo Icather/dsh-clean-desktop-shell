@@ -305,6 +305,12 @@ This entry exercises recovery boundaries using a temporary non-executable file a
 
 ## Changelog
 
+### 0.1.14
+- Fixed "clicking *create desktop shortcut* does nothing": `shell.writeShortcutLink` **throws** for several failure modes rather than returning `false`, and neither call site (tray menu, first-run prompt) caught it — the rejection was swallowed by an async handler, so the UI showed absolutely nothing. Both now catch and surface the real message.
+- The shortcut dialog now states **which folder actually received the .lnk**. A Desktop redirected by OneDrive (`…\OneDrive\Desktop`) is a common case where the shortcut is created successfully but lands somewhere the user never looks; that ambiguity is gone.
+- Compatibility declaration adds `dshReleases["0.1.5-rc.3"] = "compatible"`, backed by an end-to-end re-verification on a real Electron window against a 0.1.5-rc.3 backend (launch-token exchange → settles on the clean root → real UI renders → `dsh-auth` cookie lands). Anything not actually verified stays `unknown`.
+- Corrected the stale `version` field in `package-lock.json` (0.1.10 → 0.1.13).
+
 ### 0.1.13
 - Fixed a first launch that could stay windowless for minutes: the taskbar-icon patch (rcedit) reused the generic 600 s download budget, so a slow GitHub could hold the window back for ten minutes. It now has its own 20 s cap plus a 25 s deadline for the whole step, and runs in parallel with the Electron runtime download — a miss only costs the custom icon, never the window.
 - Declared compatibility ranges explicitly (`engines.node: ">=20.0.0"` and `dsh.compatibility` with per-release status), plus dependencies, lifecycle scripts (none), external services, failure bounds and a disposable-profile install / start / uninstall record — meeting the DSH STORE listing contract.
